@@ -29,7 +29,8 @@ export type NavView =
   | 'insights'
   | 'library'
   | 'methodology'
-  | 'report';
+  | 'report'
+  | 'settings';
 
 interface SidebarProps {
   currentView: NavView;

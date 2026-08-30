@@ -118,6 +118,15 @@ export const ROUTE_METADATA: Record<NavView, RouteMetadata> = {
     heading: 'Relatório Executivo Consolidado',
     category: 'Executive Reports',
     ogType: 'website'
+  },
+  settings: {
+    title: 'Configurações de Conta | Easy Mix Modeling',
+    description: 'Gerencie suas preferências de conta, perfil, dados de faturamento e configurações de segurança da plataforma.',
+    keywords: 'configurações MMM, conta, perfil de marketing, billing, plano de assinatura',
+    hash: '#/settings',
+    heading: 'Configurações',
+    category: 'Account',
+    ogType: 'website'
   }
 };
 
@@ -244,7 +253,8 @@ export function getNavViewFromHash(): NavView | null {
     'insights',
     'library',
     'methodology',
-    'report'
+    'report',
+    'settings'
   ];
 
   if (validViews.includes(hash as NavView)) {

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Play, Sparkles, Sun, Moon, HelpCircle, Menu } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Play, Sparkles, Sun, Moon, HelpCircle, Menu, User, Settings, LogOut } from 'lucide-react';
 import { NavView } from './Sidebar';
 import { DateRangeFilter } from '../types/mmm';
 import { UploadResponse } from '../services/apiClient';
@@ -23,6 +23,7 @@ interface HeaderProps {
   currentDataset?: UploadResponse | null;
   onNavigateToReadiness?: () => void;
   onResetDateRange?: () => void;
+  onNavigateToSettings?: () => void;
 }
 
 const VIEW_TITLES: Record<NavView, { title: string; subtitle: string }> = {
@@ -73,6 +74,10 @@ const VIEW_TITLES: Record<NavView, { title: string; subtitle: string }> = {
   report: {
     title: 'Relatório Executivo para Diretoria',
     subtitle: 'Visão consolidada para apresentação e tomada de decisão com evidências transparentes.'
+  },
+  settings: {
+    title: 'Configurações',
+    subtitle: 'Gerencie seu perfil, conta, faturamento e preferências.'
   }
 };
 
@@ -94,9 +99,22 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeDateRange,
   currentDataset,
   onNavigateToReadiness,
-  onResetDateRange
+  onResetDateRange,
+  onNavigateToSettings
 }) => {
   const currentInfo = VIEW_TITLES[currentView] || { title: 'Marketing Mix Modeling', subtitle: '' };
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <header className="h-14 sm:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 md:px-6 flex items-center justify-between shrink-0 transition-colors z-10 gap-2 min-w-0">
@@ -177,6 +195,47 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">Otimizar</span>
           </button>
         )}
+
+        {/* User Dropdown */}
+        <div className="relative" ref={userMenuRef}>
+          <button
+            onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-offset-slate-900"
+            aria-label="Menu do Usuário"
+            aria-expanded={isUserMenuOpen}
+            aria-haspopup="true"
+          >
+            <User className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+          </button>
+
+          {isUserMenuOpen && (
+            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 py-1.5 z-50 origin-top-right animate-in fade-in slide-in-from-top-2">
+              <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
+                <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">Usuário de Teste</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">usuario@exemplo.com.br</p>
+              </div>
+              <div className="p-1">
+                <button
+                  onClick={() => {
+                    setIsUserMenuOpen(false);
+                    if (onNavigateToSettings) onNavigateToSettings();
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition flex items-center gap-2"
+                >
+                  <Settings className="w-4 h-4 text-slate-400" />
+                  Configurações
+                </button>
+                <button
+                  onClick={() => setIsUserMenuOpen(false)}
+                  className="w-full text-left px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition flex items-center gap-2"
+                >
+                  <LogOut className="w-4 h-4 text-red-500 dark:text-red-400" />
+                  Sair
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

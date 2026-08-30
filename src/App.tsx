@@ -25,6 +25,7 @@ const InsightsView = lazy(() => import('./components/InsightsView').then(m => ({
 const ChannelLibraryView = lazy(() => import('./components/ChannelLibraryView').then(m => ({ default: m.ChannelLibraryView })));
 const MethodologyGuideView = lazy(() => import('./components/MethodologyGuideView').then(m => ({ default: m.MethodologyGuideView })));
 const ReportView = lazy(() => import('./components/ReportView').then(m => ({ default: m.ReportView })));
+const SettingsView = lazy(() => import('./components/SettingsView').then(m => ({ default: m.SettingsView })));
 const TourGuideModal = lazy(() => import('./components/TourGuideModal').then(m => ({ default: m.TourGuideModal })));
 
 const ViewLoadingFallback = () => (
@@ -416,6 +417,7 @@ export default function App() {
               endDate: availableDates[availableDates.length - 1] || ''
             })
           }
+          onNavigateToSettings={() => setCurrentView('settings')}
         />
 
         {/* View Router */}
@@ -522,6 +524,10 @@ export default function App() {
                 dateRange={dateRange}
                 onChangeDateRange={setDateRange}
               />
+            )}
+
+            {currentView === 'settings' && (
+              <SettingsView />
             )}
           </Suspense>
         </main>
