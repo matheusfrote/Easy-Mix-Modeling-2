@@ -1,0 +1,16 @@
+{
+  "short_name": "Easy Mix Modeling",
+  "name": "Easy Mix Modeling - Marketing Mix Modeling Platform",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "display": "standalone",
+  "orientation": "portrait"
+}

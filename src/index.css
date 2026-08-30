@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   Print & PDF Generation Stylesheet
+   ========================================================================== */
+@media print {
+  /* Hide all non-report navigation, headers, sidebars, modals, floating buttons */
+  header,
+  aside,
+  #main-sidebar,
+  nav,
+  .print\:hidden,
+  button,
+  [role="dialog"],
+  .fixed,
+  .sticky {
+    display: none !important;
+  }
+
+  /* Reset body and container backgrounds for pristine print output */
+  html,
+  body,
+  #root,
+  main,
+  #report-view {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Force exact color and background rendering on print/PDF */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Ensure cards, tables, charts, and sections do not break awkwardly across pages */
+  section,
+  article,
+  table,
+  tr,
+  img,
+  svg,
+  canvas,
+  .recharts-wrapper,
+  .recharts-surface,
+  .print-avoid-break,
+  .rounded-xl,
+  .rounded-2xl,
+  .rounded-lg,
+  .shadow-sm,
+  .shadow-md {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Prevent headings from being stranded at the bottom of a page */
+  h1, h2, h3, h4, h5, h6 {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  /* Flatten UI components: remove shadows and add clean borders for PDF readability */
+  [class*="shadow-"],
+  .shadow,
+  .shadow-sm,
+  .shadow-md,
+  .shadow-lg {
+    box-shadow: none !important;
+    border: 1px solid #e2e8f0 !important;
+  }
+
+  /* Specific handling for charts to fit page width and render crisply */
+  .recharts-wrapper {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  
+  .recharts-legend-wrapper {
+    break-inside: avoid !important;
+  }
+
+  /* Table styling enhancements for PDF */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  th, td {
+    padding: 6px 10px !important;
+    font-size: 10px !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+
+  th {
+    background-color: #f8fafc !important;
+    color: #334155 !important;
+    font-weight: 700 !important;
+  }
+
+  /* Reduce spacing to optimize PDF pagination and fit more content */
+  .p-6, .p-8 { padding: 1.25rem !important; }
+  .gap-6, .gap-8 { gap: 1.25rem !important; }
+  .mb-8 { margin-bottom: 1.5rem !important; }
+  .mt-8 { margin-top: 1.5rem !important; }
+  .space-y-6 > * + * { margin-top: 1.25rem !important; }
+  .space-y-8 > * + * { margin-top: 1.5rem !important; }
+
+  @page {
+    margin: 12mm 15mm;
+    size: A4 portrait;
+  }
+}
+
