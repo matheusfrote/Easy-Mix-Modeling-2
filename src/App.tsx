@@ -11,9 +11,11 @@ import { apiClient, UploadResponse } from './services/apiClient';
 import { ColumnMapping, MeridianModelConfig, MeridianModelResults, DateRangeFilter } from './types/mmm';
 import { useIsMobile, getResponsiveOverflowClass } from './utils/responsive';
 import { updatePageSeo, getNavViewFromHash } from './services/seoManager';
+import { useAuth } from './context/AuthContext';
 import localforage from 'localforage';
 
 // Lazy load non-initial views to dramatically reduce initial bundle parse time
+const LandingPage = lazy(() => import('./components/landing/LandingPage').then(m => ({ default: m.LandingPage })));
 const DataUploadView = lazy(() => import('./components/DataUploadView').then(m => ({ default: m.DataUploadView })));
 const ColumnMappingView = lazy(() => import('./components/ColumnMappingView').then(m => ({ default: m.ColumnMappingView })));
 const DataReadinessView = lazy(() => import('./components/DataReadinessView').then(m => ({ default: m.DataReadinessView })));
@@ -37,10 +39,48 @@ const ViewLoadingFallback = () => (
   </div>
 );
 
+const ProtectedRouter = ({ 
+  children, 
+  currentView, 
+  onRedirectToLanding 
+}: { 
+  children: React.ReactNode, 
+  currentView: NavView, 
+  onRedirectToLanding: () => void 
+}) => {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated && currentView !== 'landing') {
+      onRedirectToLanding();
+    }
+  }, [isAuthenticated, isLoading, currentView, onRedirectToLanding]);
+
+  if (isLoading) {
+    return (
+      <div className="flex w-full min-h-[100dvh] h-[100dvh] bg-slate-100 dark:bg-slate-950 items-center justify-center">
+        <ViewLoadingFallback />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated && currentView !== 'landing') {
+    return (
+      <div className="flex w-full min-h-[100dvh] h-[100dvh] bg-slate-100 dark:bg-slate-950 items-center justify-center">
+        <ViewLoadingFallback />
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
+
 export default function App() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [currentView, setCurrentView] = useState<NavView>(() => {
-    return getNavViewFromHash() || 'dashboard';
+    const hashView = getNavViewFromHash();
+    if (hashView) return hashView;
+    return 'landing';
   });
   const [currentDataset, setCurrentDataset] = useState<UploadResponse | null>(null);
   const [modelResults, setModelResults] = useState<MeridianModelResults | null>(null);
@@ -361,192 +401,209 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="flex w-full min-h-[100dvh] h-[100dvh] overflow-hidden bg-slate-100 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 antialiased transition-colors duration-200">
-      {/* Toast Notification */}
-      {statusNotification && (
-        <div 
-          role="alert" 
-          aria-live="assertive"
-          className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 bg-slate-900 dark:bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-xl border border-slate-700 dark:border-slate-600 animate-fade-in flex items-center gap-2 max-w-[calc(100vw-2rem)]"
-        >
-          <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" aria-hidden="true"></span>
-          <span className="truncate">{statusNotification}</span>
-        </div>
-      )}
-
-      {/* Main Sidebar (Desktop Static + Mobile Drawer) */}
-      <Sidebar
-        currentView={currentView}
-        onSelectView={(view) => {
-          setCurrentView(view);
-          setIsMobileMenuOpen(false);
-        }}
-        readinessScore={currentDataset?.readiness || null}
-        isModelTrained={!!modelResults}
-        isSyntheticData={currentDataset?.isSynthetic ?? false}
-        onOpenTour={() => setIsTourOpen(true)}
-        isOpenMobile={isMobileMenuOpen}
-        onCloseMobile={() => setIsMobileMenuOpen(false)}
-      />
-
-      {/* Main Content Area */}
-      <div className={`flex-1 flex flex-col min-w-0 h-[100dvh] ${getResponsiveOverflowClass(isMobile)}`}>
-        <Header
-          currentView={currentView}
-          onQuickOptimize={() => setCurrentView('budget')}
-          onRunModel={() => handleRunModel()}
-          onOpenTour={() => setIsTourOpen(true)}
-          onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
-          isModelRunning={isModelRunning}
-          isModelTrained={!!modelResults}
-          filename={currentDataset?.filename}
-          isSyntheticData={currentDataset?.isSynthetic}
-          onLoadSynthetic={handleLoadSynthetic}
+  // Render sales landing page when on landing view
+  if (currentView === 'landing') {
+    return (
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <LandingPage
+          onEnterWorkspace={() => setCurrentView('dashboard')}
           theme={theme}
           onToggleTheme={handleToggleTheme}
-          availableDates={availableDates}
-          dateRange={dateRange}
-          onChangeDateRange={setDateRange}
-          currentDataset={currentDataset}
-          onNavigateToReadiness={() => setCurrentView('readiness')}
-          onResetDateRange={() =>
-            setDateRange({
-              preset: 'all',
-              startDate: availableDates[0] || '',
-              endDate: availableDates[availableDates.length - 1] || ''
-            })
-          }
-          onNavigateToSettings={() => setCurrentView('settings')}
+        />
+      </Suspense>
+    );
+  }
+
+  return (
+    <ProtectedRouter currentView={currentView} onRedirectToLanding={() => setCurrentView('landing')}>
+      <div className="flex w-full min-h-[100dvh] h-[100dvh] overflow-hidden bg-slate-100 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 antialiased transition-colors duration-200">
+        {/* Toast Notification */}
+        {statusNotification && (
+          <div 
+            role="alert" 
+            aria-live="assertive"
+            className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 bg-slate-900 dark:bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-xl border border-slate-700 dark:border-slate-600 animate-fade-in flex items-center gap-2 max-w-[calc(100vw-2rem)]"
+          >
+            <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" aria-hidden="true"></span>
+            <span className="truncate">{statusNotification}</span>
+          </div>
+        )}
+
+        {/* Main Sidebar (Desktop Static + Mobile Drawer) */}
+        <Sidebar
+          currentView={currentView}
+          onSelectView={(view) => {
+            setCurrentView(view);
+            setIsMobileMenuOpen(false);
+          }}
+          readinessScore={currentDataset?.readiness || null}
+          isModelTrained={!!modelResults}
+          isSyntheticData={currentDataset?.isSynthetic ?? false}
+          onOpenTour={() => setIsTourOpen(true)}
+          isOpenMobile={isMobileMenuOpen}
+          onCloseMobile={() => setIsMobileMenuOpen(false)}
         />
 
-        {/* View Router */}
-        <main className={`flex-1 pb-16 min-w-0 ${isMobile ? 'px-1' : ''}`}>
-          <Suspense fallback={<ViewLoadingFallback />}>
-            {currentView === 'dashboard' && (
-              <DashboardView
-                results={modelResults}
-                dataset={currentDataset}
-                onNavigateToBudget={() => setCurrentView('budget')}
-                onNavigateToChannels={() => setCurrentView('channels')}
-                onNavigateToModel={() => setCurrentView('model')}
-                onNavigateToReadiness={() => setCurrentView('readiness')}
-                onResetDateRange={() =>
-                  setDateRange({
-                    preset: 'all',
-                    startDate: availableDates[0] || '',
-                    endDate: availableDates[availableDates.length - 1] || ''
-                  })
-                }
-                availableDates={availableDates}
-                dateRange={dateRange}
-                onChangeDateRange={setDateRange}
-              />
-            )}
-
-            {currentView === 'data' && (
-              <DataUploadView
-                onUploadSuccess={handleUploadSuccess}
-                onLoadSynthetic={handleLoadSynthetic}
-                currentDataset={currentDataset}
-                onNavigateToMapping={() => setCurrentView('mapping')}
-                onOpenFullTour={() => setIsTourOpen(true)}
-              />
-            )}
-
-            {currentView === 'mapping' && (
-              <ColumnMappingView
-                mappings={currentDataset?.mappings || []}
-                onSaveMappings={handleSaveMappings}
-                onNavigateToReadiness={() => setCurrentView('readiness')}
-                onOpenFullTour={() => setIsTourOpen(true)}
-              />
-            )}
-
-            {currentView === 'readiness' && (
-              <DataReadinessView
-                readiness={currentDataset?.readiness || null}
-                validation={currentDataset?.validation || null}
-                onNavigateToModel={() => setCurrentView('model')}
-                onNavigateToMapping={() => setCurrentView('mapping')}
-                onSanitizeData={handleSanitizeData}
-                onRevalidateData={handleRevalidateData}
-                onOpenFullTour={() => setIsTourOpen(true)}
-              />
-            )}
-
-            {currentView === 'model' && (
-              <ModelConfigView
-                mappings={currentDataset?.mappings || []}
-                results={modelResults}
-                onRunModel={handleRunModel}
-                isModelRunning={isModelRunning}
-                onOpenFullTour={() => setIsTourOpen(true)}
-              />
-            )}
-
-            {currentView === 'channels' && (
-              <ChannelPerformanceView
-                results={modelResults}
-                onNavigateToOptimizer={() => setCurrentView('budget')}
-                availableDates={availableDates}
-                dateRange={dateRange}
-                onChangeDateRange={setDateRange}
-              />
-            )}
-
-            {currentView === 'budget' && (
-              <BudgetOptimizerView
-                results={modelResults}
-                onNavigateToSimulator={() => setCurrentView('simulator')}
-              />
-            )}
-
-            {currentView === 'simulator' && (
-              <WhatIfSimulatorView results={modelResults} />
-            )}
-
-            {currentView === 'insights' && (
-              <InsightsView
-                results={modelResults}
-                onNavigateToOptimizer={() => setCurrentView('budget')}
-              />
-            )}
-
-            {(currentView === 'methodology' || currentView === 'library') && (
-              <MethodologyGuideView onNavigateToMapping={() => setCurrentView('mapping')} />
-            )}
-
-            {currentView === 'report' && (
-              <ReportView
-                results={modelResults}
-                availableDates={availableDates}
-                dateRange={dateRange}
-                onChangeDateRange={setDateRange}
-              />
-            )}
-
-            {currentView === 'settings' && (
-              <SettingsView />
-            )}
-          </Suspense>
-        </main>
-      </div>
-
-      {/* Guided Tour Modal */}
-      <Suspense fallback={null}>
-        {isTourOpen && (
-          <TourGuideModal
-            isOpen={isTourOpen}
-            onClose={() => setIsTourOpen(false)}
-            onNavigateView={(view) => {
-              setCurrentView(view);
-              setIsTourOpen(false);
-            }}
+        {/* Main Content Area */}
+        <div className={`flex-1 flex flex-col min-w-0 h-[100dvh] ${getResponsiveOverflowClass(isMobile)}`}>
+          <Header
             currentView={currentView}
+            onQuickOptimize={() => setCurrentView('budget')}
+            onRunModel={() => handleRunModel()}
+            onOpenTour={() => setIsTourOpen(true)}
+            onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
+            isModelRunning={isModelRunning}
+            isModelTrained={!!modelResults}
+            filename={currentDataset?.filename}
+            isSyntheticData={currentDataset?.isSynthetic}
+            onLoadSynthetic={handleLoadSynthetic}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            availableDates={availableDates}
+            dateRange={dateRange}
+            onChangeDateRange={setDateRange}
+            currentDataset={currentDataset}
+            onNavigateToReadiness={() => setCurrentView('readiness')}
+            onResetDateRange={() =>
+              setDateRange({
+                preset: 'all',
+                startDate: availableDates[0] || '',
+                endDate: availableDates[availableDates.length - 1] || ''
+              })
+            }
+            onNavigateToSettings={() => setCurrentView('settings')}
+            onNavigateToLanding={() => setCurrentView('landing')}
           />
-        )}
-      </Suspense>
-    </div>
+
+          {/* View Router */}
+          <main className={`flex-1 pb-16 min-w-0 ${isMobile ? 'px-1' : ''}`}>
+            <Suspense fallback={<ViewLoadingFallback />}>
+              {currentView === 'dashboard' && (
+                <DashboardView
+                  results={modelResults}
+                  dataset={currentDataset}
+                  onNavigateToBudget={() => setCurrentView('budget')}
+                  onNavigateToChannels={() => setCurrentView('channels')}
+                  onNavigateToModel={() => setCurrentView('model')}
+                  onNavigateToReadiness={() => setCurrentView('readiness')}
+                  onResetDateRange={() =>
+                    setDateRange({
+                      preset: 'all',
+                      startDate: availableDates[0] || '',
+                      endDate: availableDates[availableDates.length - 1] || ''
+                    })
+                  }
+                  availableDates={availableDates}
+                  dateRange={dateRange}
+                  onChangeDateRange={setDateRange}
+                />
+              )}
+
+              {currentView === 'data' && (
+                <DataUploadView
+                  onUploadSuccess={handleUploadSuccess}
+                  onLoadSynthetic={handleLoadSynthetic}
+                  currentDataset={currentDataset}
+                  onNavigateToMapping={() => setCurrentView('mapping')}
+                  onNavigateToReadiness={() => setCurrentView('readiness')}
+                  onOpenFullTour={() => setIsTourOpen(true)}
+                />
+              )}
+
+              {currentView === 'mapping' && (
+                <ColumnMappingView
+                  mappings={currentDataset?.mappings || []}
+                  onSaveMappings={handleSaveMappings}
+                  onNavigateToReadiness={() => setCurrentView('readiness')}
+                  onOpenFullTour={() => setIsTourOpen(true)}
+                />
+              )}
+
+              {currentView === 'readiness' && (
+                <DataReadinessView
+                  readiness={currentDataset?.readiness || null}
+                  validation={currentDataset?.validation || null}
+                  onNavigateToModel={() => setCurrentView('model')}
+                  onNavigateToMapping={() => setCurrentView('mapping')}
+                  onSanitizeData={handleSanitizeData}
+                  onRevalidateData={handleRevalidateData}
+                  onOpenFullTour={() => setIsTourOpen(true)}
+                />
+              )}
+
+              {currentView === 'model' && (
+                <ModelConfigView
+                  mappings={currentDataset?.mappings || []}
+                  results={modelResults}
+                  onRunModel={handleRunModel}
+                  isModelRunning={isModelRunning}
+                  onOpenFullTour={() => setIsTourOpen(true)}
+                />
+              )}
+
+              {currentView === 'channels' && (
+                <ChannelPerformanceView
+                  results={modelResults}
+                  onNavigateToOptimizer={() => setCurrentView('budget')}
+                  availableDates={availableDates}
+                  dateRange={dateRange}
+                  onChangeDateRange={setDateRange}
+                />
+              )}
+
+              {currentView === 'budget' && (
+                <BudgetOptimizerView
+                  results={modelResults}
+                  onNavigateToSimulator={() => setCurrentView('simulator')}
+                />
+              )}
+
+              {currentView === 'simulator' && (
+                <WhatIfSimulatorView results={modelResults} />
+              )}
+
+              {currentView === 'insights' && (
+                <InsightsView
+                  results={modelResults}
+                  onNavigateToOptimizer={() => setCurrentView('budget')}
+                />
+              )}
+
+              {(currentView === 'methodology' || currentView === 'library') && (
+                <MethodologyGuideView onNavigateToMapping={() => setCurrentView('mapping')} />
+              )}
+
+              {currentView === 'report' && (
+                <ReportView
+                  results={modelResults}
+                  availableDates={availableDates}
+                  dateRange={dateRange}
+                  onChangeDateRange={setDateRange}
+                />
+              )}
+
+              {currentView === 'settings' && (
+                <SettingsView />
+              )}
+            </Suspense>
+          </main>
+        </div>
+
+        {/* Guided Tour Modal */}
+        <Suspense fallback={null}>
+          {isTourOpen && (
+            <TourGuideModal
+              isOpen={isTourOpen}
+              onClose={() => setIsTourOpen(false)}
+              onNavigateView={(view) => {
+                setCurrentView(view);
+                setIsTourOpen(false);
+              }}
+              currentView={currentView}
+            />
+          )}
+        </Suspense>
+      </div>
+    </ProtectedRouter>
   );
 }

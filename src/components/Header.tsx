@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Sparkles, Sun, Moon, HelpCircle, Menu, User, Settings, LogOut } from 'lucide-react';
+import { Play, Sparkles, Sun, Moon, HelpCircle, Menu, User as UserIcon, Settings, LogOut, Globe, Shield, Sparkle } from 'lucide-react';
 import { NavView } from './Sidebar';
 import { DateRangeFilter } from '../types/mmm';
 import { UploadResponse } from '../services/apiClient';
+import { useAuth } from '../context/AuthContext';
 
 interface HeaderProps {
   currentView: NavView;
@@ -24,9 +25,14 @@ interface HeaderProps {
   onNavigateToReadiness?: () => void;
   onResetDateRange?: () => void;
   onNavigateToSettings?: () => void;
+  onNavigateToLanding?: () => void;
 }
 
 const VIEW_TITLES: Record<NavView, { title: string; subtitle: string }> = {
+  landing: {
+    title: 'Easy Mix Modeling — Apresentação Institucional',
+    subtitle: 'Marketing Mix Modeling guiado pelo Google Meridian e inteligência artificial.'
+  },
   dashboard: {
     title: 'Resumo do seu Marketing & Retornos',
     subtitle: 'Descubra quais canais mais contribuíram para suas vendas e onde estão as maiores oportunidades.'
@@ -100,11 +106,13 @@ export const Header: React.FC<HeaderProps> = ({
   currentDataset,
   onNavigateToReadiness,
   onResetDateRange,
-  onNavigateToSettings
+  onNavigateToSettings,
+  onNavigateToLanding
 }) => {
   const currentInfo = VIEW_TITLES[currentView] || { title: 'Marketing Mix Modeling', subtitle: '' };
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -115,6 +123,28 @@ export const Header: React.FC<HeaderProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const handleLogout = () => {
+    setIsUserMenuOpen(false);
+    logout();
+    if (onNavigateToLanding) {
+      onNavigateToLanding();
+    }
+  };
+
+  const getPlanBadge = (plan?: string) => {
+    switch (plan) {
+      case 'enterprise':
+        return { label: 'Enterprise', bg: 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-300' };
+      case 'starter':
+        return { label: 'Starter', bg: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300' };
+      case 'pro':
+      default:
+        return { label: 'Pro (Meridian)', bg: 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-300' };
+    }
+  };
+
+  const planInfo = getPlanBadge(user?.plan);
 
   return (
     <header className="h-14 sm:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 md:px-6 flex items-center justify-between shrink-0 transition-colors z-10 gap-2 min-w-0">
@@ -200,37 +230,80 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative" ref={userMenuRef}>
           <button
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-offset-slate-900"
+            className="flex items-center gap-2 p-1 pl-1.5 pr-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500"
             aria-label="Menu do Usuário"
             aria-expanded={isUserMenuOpen}
             aria-haspopup="true"
           >
-            <User className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+            {user?.avatar ? (
+              <img
+                src={user.avatar}
+                alt={user.name}
+                referrerPolicy="no-referrer"
+                className="w-6 h-6 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-[10px] font-bold text-white uppercase">
+                {user?.name ? user.name.slice(0, 2) : 'EM'}
+              </div>
+            )}
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 hidden sm:inline max-w-[100px] truncate">
+              {user?.name || 'Visitante'}
+            </span>
           </button>
 
           {isUserMenuOpen && (
-            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 py-1.5 z-50 origin-top-right animate-in fade-in slide-in-from-top-2">
-              <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
-                <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">Usuário de Teste</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">usuario@exemplo.com.br</p>
+            <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-50 origin-top-right animate-in fade-in slide-in-from-top-2">
+              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 space-y-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                    {user?.name || 'Visitante'}
+                  </p>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${planInfo.bg}`}>
+                    {planInfo.label}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                  {user?.email || 'demo@easymixmodeling.com'}
+                </p>
+                {user?.company && (
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                    {user.company}
+                  </p>
+                )}
               </div>
-              <div className="p-1">
+              <div className="p-1.5 space-y-0.5">
+                {onNavigateToLanding && (
+                  <button
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      onNavigateToLanding();
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition flex items-center justify-between group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-blue-500" />
+                      <span>Ver Landing Page & Planos</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 group-hover:text-blue-500">&rarr;</span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setIsUserMenuOpen(false);
                     if (onNavigateToSettings) onNavigateToSettings();
                   }}
-                  className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition flex items-center gap-2"
+                  className="w-full text-left px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition flex items-center gap-2"
                 >
                   <Settings className="w-4 h-4 text-slate-400" />
-                  Configurações
+                  <span>Configurações & Faturamento</span>
                 </button>
                 <button
-                  onClick={() => setIsUserMenuOpen(false)}
-                  className="w-full text-left px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition flex items-center gap-2"
+                  onClick={handleLogout}
+                  className="w-full text-left px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition flex items-center gap-2 border-t border-slate-100 dark:border-slate-800/60 mt-1 pt-2"
                 >
                   <LogOut className="w-4 h-4 text-red-500 dark:text-red-400" />
-                  Sair
+                  <span>Sair da Conta</span>
                 </button>
               </div>
             </div>
