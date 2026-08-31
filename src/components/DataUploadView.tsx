@@ -21,9 +21,7 @@ import { UploadResponse, apiClient } from '../services/apiClient';
 import { StepGuidanceBanner, InfoTooltip } from './ContextualGuide';
 import { CsvFileInput } from './CsvFileInput';
 import { ScrollableTableWrapper } from './ui/ScrollableTableWrapper';
-import { IntegrationCatalog } from './integration/IntegrationCatalog';
-import { ConnectSourceModal } from './integration/ConnectSourceModal';
-import { ConnectedSourcesSection } from './integration/ConnectedSourcesSection';
+import { Connectors } from './integration/Connectors';
 import { DataQualityReadinessWidget } from './integration/DataQualityReadinessWidget';
 import { SmartMappingPreview } from './integration/SmartMappingPreview';
 import {
@@ -274,23 +272,10 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
       {/* API Ingestion Mode Content */}
       {ingestionMode === 'api' && (
         <div className="space-y-6 animate-fade-in">
-          {connectedSources.length > 0 && (
-            <ConnectedSourcesSection
-              sources={connectedSources}
-              onManageSource={handleOpenConnectModal}
-              onDisconnectSource={handleDisconnectSource}
-              onSyncAll={handleSyncAll}
-              isSyncing={isSyncingAll}
-              onAddNewSource={() => {
-                const el = document.getElementById('integration-catalog-container');
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-            />
-          )}
-          <IntegrationCatalog
-            onConnectSource={handleOpenConnectModal}
-            onUploadCsvForSource={handleUploadCsvForSource}
+                    <Connectors 
             connectedSources={connectedSources}
+            onConnectedSuccess={handleConnectedSuccess}
+            onDisconnect={handleDisconnectSource}
           />
         </div>
       )}
@@ -401,20 +386,6 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
         </div>
       )}
 
-      {/* Connect Source Modal */}
-      {selectedSourceForModal && (
-        <ConnectSourceModal
-          source={selectedSourceForModal}
-          isOpen={isConnectModalOpen}
-          onClose={() => {
-            setIsConnectModalOpen(false);
-            setSelectedSourceForModal(null);
-          }}
-          onConnectedSuccess={handleConnectedSuccess}
-          onDisconnect={handleDisconnectSource}
-          existingInstance={existingInstanceForSelected}
-        />
-      )}
-    </div>
+      </div>
   );
 };

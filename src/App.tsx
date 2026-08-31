@@ -252,7 +252,7 @@ export default function App() {
 
   const handleUploadSuccess = (response: UploadResponse) => {
     setCurrentDataset(response);
-    showToast('Planilha carregada e analisada com sucesso!');
+    showToast('Dados importados e analisados com sucesso!');
     setCurrentView('readiness');
   };
 
