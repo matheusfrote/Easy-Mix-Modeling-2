@@ -16,14 +16,17 @@ export interface DecisionTreeOutput {
 export function evaluateChannelDecisionTree(
   features: ChannelFeatures,
   benchmarks: PortfolioBenchmarks,
-  diagnostics?: { rSquared?: number; mape?: number; gelmanRubinRhat?: number; effectiveSampleSize?: number; isConverged?: boolean }
+  diagnostics?: { rSquared?: number | string; mape?: number | string; gelmanRubinRhat?: number | string; effectiveSampleSize?: number | string; isConverged?: boolean }
 ): DecisionTreeOutput {
   const reasonCodes: ReasonCode[] = [];
 
   // ==========================================
   // NODE 1: DATA SUFFICIENCY & UNCERTAINTY GATE
   // ==========================================
-  const isMcmcNonConverged = diagnostics && diagnostics.gelmanRubinRhat && diagnostics.gelmanRubinRhat > DECISION_THRESHOLDS.dataSufficiency.maxRhat;
+  const rhatNum = typeof diagnostics?.gelmanRubinRhat === 'number'
+    ? diagnostics.gelmanRubinRhat
+    : parseFloat(String(diagnostics?.gelmanRubinRhat || ''));
+  const isMcmcNonConverged = diagnostics && !isNaN(rhatNum) && rhatNum > DECISION_THRESHOLDS.dataSufficiency.maxRhat;
   const isHighUncertainty = features.mroiCiWidth > DECISION_THRESHOLDS.uncertainty.highCiWidthRatio || features.roiCiWidth > DECISION_THRESHOLDS.uncertainty.highCiWidthRatio;
   const isInsufficientSpend = features.spend < DECISION_THRESHOLDS.dataSufficiency.minSpend;
 

@@ -199,13 +199,42 @@ export interface ChannelResponseCurve {
   points: ResponseCurvePoint[];
 }
 
-export interface ModelDiagnostics {
+export interface PosteriorDistribution {
+  mean: number;
+  std: number;
+  median?: number;
+  ci025: number;
+  ci975: number;
+  rHat?: number;
+  essBulk?: number;
+  essTail?: number;
+}
+
+export interface PosteriorMetrics {
+  adstockDecay: Record<string, PosteriorDistribution | number>; // alpha parameter posterior per media channel
+  halfSaturation: Record<string, PosteriorDistribution | number>; // gamma parameter posterior
+  slope: Record<string, PosteriorDistribution | number>; // slope parameter posterior
+  mediaCoefficients: Record<string, PosteriorDistribution | number>; // beta_m media contribution coefficients
+  controlCoefficients?: Record<string, PosteriorDistribution | number>; // gamma_c control variable coefficients
+  baselineIntercept?: PosteriorDistribution | number;
+  errorVariance?: PosteriorDistribution | number;
+  looCv?: number | 'N/A'; // PSIS-LOO Leave-One-Out Cross-Validation
+  waic?: number | 'N/A'; // Widely Applicable Information Criterion
+  priorsVsPosteriors?: Record<string, { priorMean: number; priorStd: number; posteriorMean: number; posteriorStd: number }>;
+}
+
+export interface MeridianDiagnostics {
   rSquared: number;
   mape: number; // Mean Absolute Percentage Error (%)
   rmse: number;
-  bayesianR2: number;
-  gelmanRubinRhat: number; // Max R-hat across parameters (< 1.05 is good)
-  effectiveSampleSize: number; // Min ESS (> 400 is good)
+  bayesianR2: number | 'N/A';
+  gelmanRubinRhat: number | 'N/A'; // Max Gelman-Rubin R-hat across parameters (< 1.05 is good)
+  effectiveSampleSize: number | 'N/A'; // Min Effective Sample Size (> 400 is good)
+  bulkEss?: number | 'N/A';
+  tailEss?: number | 'N/A';
+  looCv?: number | 'N/A';
+  waic?: number | 'N/A';
+  divergencesCount?: number | 'N/A';
   isConverged: boolean;
   warnings: string[];
   baselineContribution: number;
@@ -216,6 +245,7 @@ export interface ModelDiagnostics {
   mediaShare: number;
   totalObservedKpi: number;
   totalPredictedKpi: number;
+  posteriorMetrics?: PosteriorMetrics;
   timeSeriesFit: {
     date: string;
     actual: number;
@@ -229,6 +259,8 @@ export interface ModelDiagnostics {
     channelSpends?: Record<string, number>;
   }[];
 }
+
+export type ModelDiagnostics = MeridianDiagnostics;
 
 export interface MeridianModelResults {
   modelId: string;

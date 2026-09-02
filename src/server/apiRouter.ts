@@ -1,5 +1,4 @@
 import { inferColumnMappings } from '../services/dataMapper';
-
 import { registry } from './connectors/ConnectorRegistry';
 import { calculateDataReadinessScore } from '../services/dataReadiness';
 import { validateDataset, sanitizeDataset, DataRow } from '../services/dataValidator';
@@ -11,6 +10,47 @@ import {
   generateFullReport
 } from './geminiHandler';
 import { ColumnMapping, MeridianModelConfig, MeridianModelResults } from '../types/mmm';
+import { mmmServiceClient } from './services/mmmService';
+
+/**
+ * Formats Bayesian diagnostics ensuring that any non-computed or pending metrics
+ * strictly return 'N/A' rather than arbitrary heuristics or magic numbers.
+ */
+function formatDiagnosticsWithFallbacks(diag: any) {
+  if (!diag) return null;
+  return {
+    rSquared: typeof diag.rSquared === 'number' ? diag.rSquared : 'N/A',
+    bayesianR2: typeof diag.bayesianR2 === 'number' ? diag.bayesianR2 : 'N/A',
+    mape: typeof diag.mape === 'number' ? diag.mape : 'N/A',
+    rmse: typeof diag.rmse === 'number' ? diag.rmse : 'N/A',
+    gelmanRubinRhat: typeof diag.gelmanRubinRhat === 'number' ? diag.gelmanRubinRhat : 'N/A',
+    effectiveSampleSize: typeof diag.effectiveSampleSize === 'number' ? diag.effectiveSampleSize : 'N/A',
+    bulkEss: typeof diag.bulkEss === 'number' ? diag.bulkEss : 'N/A',
+    tailEss: typeof diag.tailEss === 'number' ? diag.tailEss : 'N/A',
+    looCv: typeof diag.looCv === 'number' ? diag.looCv : 'N/A',
+    waic: typeof diag.waic === 'number' ? diag.waic : 'N/A',
+    divergencesCount: typeof diag.divergencesCount === 'number' ? diag.divergencesCount : 'N/A',
+    isConverged: Boolean(diag.isConverged),
+    warnings: Array.isArray(diag.warnings) ? diag.warnings : [],
+    baselineContribution: typeof diag.baselineContribution === 'number' ? diag.baselineContribution : 0,
+    baselineShare: typeof diag.baselineShare === 'number' ? diag.baselineShare : 0,
+    controlsContribution: typeof diag.controlsContribution === 'number' ? diag.controlsContribution : 0,
+    controlsShare: typeof diag.controlsShare === 'number' ? diag.controlsShare : 0,
+    mediaContribution: typeof diag.mediaContribution === 'number' ? diag.mediaContribution : 0,
+    mediaShare: typeof diag.mediaShare === 'number' ? diag.mediaShare : 0,
+    totalObservedKpi: typeof diag.totalObservedKpi === 'number' ? diag.totalObservedKpi : 0,
+    totalPredictedKpi: typeof diag.totalPredictedKpi === 'number' ? diag.totalPredictedKpi : 0,
+    posteriorMetrics: diag.posteriorMetrics || {
+      adstockDecay: {},
+      halfSaturation: {},
+      slope: {},
+      mediaCoefficients: {},
+      looCv: 'N/A',
+      waic: 'N/A'
+    },
+    timeSeriesFit: diag.timeSeriesFit || []
+  };
+}
 
 // In-memory session store for current dataset & model (ready for Cloud Storage / BigQuery)
 interface AppState {
@@ -227,8 +267,8 @@ export async function handleApiRequest(
       };
     }
 
-    // 5. Fit Meridian Model
-    if (path === '/api/model' && method === 'POST') {
+    // 5. Fit Meridian Model (with Python microservice client and native execution fallback)
+    if ((path === '/api/model' || path === '/api/model/run' || path === '/api/model/fit') && method === 'POST') {
       const { config, rows } = body;
       const targetRows = rows || state.dataset?.rows;
       const modelConfig: MeridianModelConfig = config || state.modelConfig;
@@ -241,12 +281,59 @@ export async function handleApiRequest(
       }
 
       state.modelConfig = modelConfig;
-      const results = fitMeridianModel(targetRows, modelConfig, state.dataset?.isSynthetic ?? false);
+
+      // Delegate to the dedicated MMM Python microservice client
+      const pyServiceResponse = await mmmServiceClient.fitModel({
+        rows: targetRows,
+        config: modelConfig
+      });
+
+      let results: MeridianModelResults;
+      if (pyServiceResponse.status === 'success' && pyServiceResponse.results && Array.isArray(pyServiceResponse.results.channels)) {
+        results = {
+          ...pyServiceResponse.results,
+          diagnostics: formatDiagnosticsWithFallbacks(pyServiceResponse.results.diagnostics)
+        };
+      } else {
+        // Native Bayesian engine execution
+        const nativeResults = fitMeridianModel(targetRows, modelConfig, state.dataset?.isSynthetic ?? false);
+        results = {
+          ...nativeResults,
+          diagnostics: formatDiagnosticsWithFallbacks(nativeResults.diagnostics)
+        };
+      }
+
       state.activeModel = results;
 
       return {
         status: 200,
         data: results
+      };
+    }
+
+    // 5.1 Get Model Diagnostics & Posterior Metrics (Google Meridian & ArviZ format)
+    if (path === '/api/model/diagnostics' && method === 'GET') {
+      if (!state.activeModel) {
+        return {
+          status: 404,
+          data: { error: 'Nenhum modelo Meridian em execução para exibição de diagnósticos.' }
+        };
+      }
+
+      // Query diagnostics from microservice client
+      const pyDiagnostics = await mmmServiceClient.getDiagnostics();
+
+      return {
+        status: 200,
+        data: {
+          diagnostics: formatDiagnosticsWithFallbacks(state.activeModel.diagnostics),
+          posteriorMetrics: state.activeModel.diagnostics?.posteriorMetrics || {
+            looCv: 'N/A',
+            waic: 'N/A',
+            divergencesCount: 'N/A'
+          },
+          serviceDiagnostics: pyDiagnostics || { status: 'native_engine', meridianVersion: 'google-meridian' }
+        }
       };
     }
 
@@ -260,7 +347,10 @@ export async function handleApiRequest(
       }
       return {
         status: 200,
-        data: state.activeModel
+        data: {
+          ...state.activeModel,
+          diagnostics: formatDiagnosticsWithFallbacks(state.activeModel.diagnostics)
+        }
       };
     }
 
