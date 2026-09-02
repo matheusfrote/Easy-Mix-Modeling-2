@@ -19,22 +19,32 @@ export function calculateDataReadinessScore(
   let historyStatus: 'pass' | 'warning' | 'fail' = 'fail';
   let historyDetails = '';
 
-  if (numRows >= 104) {
+  let monthsCoverage = 0;
+  if (dateCol && data.length > 0) {
+    const dates = data.map(r => new Date(r[dateCol])).filter(d => !isNaN(d.getTime()));
+    if (dates.length > 1) {
+      const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
+      const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
+      monthsCoverage = (maxDate.getFullYear() - minDate.getFullYear()) * 12 + (maxDate.getMonth() - minDate.getMonth());
+    }
+  }
+
+  if (monthsCoverage >= 36) {
     historyScore = 20;
     historyStatus = 'pass';
-    historyDetails = `${numRows} semanas de dados históricos (2+ anos). Ideal para capturar sazonalidade anual completa e ciclos econômicos.`;
-  } else if (numRows >= 52) {
+    historyDetails = `${monthsCoverage} meses de dados históricos. Ideal para capturar sazonalidade anual completa e ciclos econômicos.`;
+  } else if (monthsCoverage >= 24) {
     historyScore = 15;
     historyStatus = 'pass';
-    historyDetails = `${numRows} semanas de dados históricos (1 ano). Suficiente para estimar parâmetros com credibilidade estatística.`;
-  } else if (numRows >= 26) {
+    historyDetails = `${monthsCoverage} meses de dados históricos. Mínimo recomendado atendido para Geo MMM.`;
+  } else if (monthsCoverage >= 12) {
     historyScore = 8;
     historyStatus = 'warning';
-    historyDetails = `${numRows} semanas detectadas. O modelo conseguirá rodar, mas intervalos de incerteza bayesiana serão alargados devido ao histórico limitado.`;
+    historyDetails = `${monthsCoverage} meses detectados. O modelo conseguirá rodar, mas intervalos de incerteza bayesiana serão alargados devido ao histórico limitado. Recomenda-se 24-36 meses.`;
   } else {
     historyScore = 0;
     historyStatus = 'fail';
-    historyDetails = `Apenas ${numRows} semanas. Mínimo recomendado de 52 semanas para modelagem bayesiana Meridian.`;
+    historyDetails = `Apenas ${monthsCoverage} meses. Mínimo recomendado de 24 meses para modelagem bayesiana Meridian, ou 12 meses sob condições muito restritas.`;
   }
 
   items.push({

@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import {
   AIInsightItem,
   BudgetOptimizationResult,
@@ -79,7 +79,7 @@ async function generateContentWithFallback(
 }
 
 /**
- * Generates grounded executive explanation for budget reallocation
+ * Generates grounded executive explanation for budget reallocation using Structured Outputs
  */
 export async function generateBudgetExplanation(
   results: MeridianModelResults,
@@ -110,7 +110,7 @@ Sua missão é explicar para a diretoria executiva a recomendação de redistrib
 REGRAS CRÍTICAS:
 1. Baseie-se ESTRITAMENTE nos números fornecidos. NÃO invente números, métricas ou canais.
 2. Destaque o princípio do Retorno Marginal (mROI) e saturação (curva de Hill).
-3. Seja objetivo, claro, elegante e estratégico. Em português do Brasil com formatação Markdown limpa.
+3. Responda ESTRITAMENTE usando o schema JSON fornecido.
 4. Se o usuário perguntar onde colocar R$ 10.000 extras, aponte diretamente para o canal com o maior retorno marginal.`;
 
   const userPrompt = `
@@ -127,8 +127,7 @@ DADOS DO MODELO MERIDIAN:
 TABELA DE REALOCAÇÃO:
 ${JSON.stringify(channelsData, null, 2)}
 
-Elabore a recomendação executiva explicando detalhadamente: por que aumentar nos canais recomendados, por que reduzir nos canais saturados e qual a expectativa realista de retorno com intervalo de confiança.
-`;
+Elabore a recomendação executiva explicando detalhadamente o diagnóstico, análise marginal e impacto estimado.`;
 
   const getHeuristicFallback = () => {
     return answerStrategicQuestion(extraQuery || 'resumo', results, opt);
@@ -143,11 +142,61 @@ Elabore a recomendação executiva explicando detalhadamente: por que aumentar n
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
-        temperature: 0.2
+        temperature: 0.1,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            question: { type: Type.STRING },
+            evidence_ids: { type: Type.ARRAY, items: { type: Type.STRING } },
+            evidence_summary: { type: Type.STRING },
+            analysis: { type: Type.STRING },
+            conclusion: { type: Type.STRING },
+            recommendation: { type: Type.STRING },
+            estimated_impact: {
+              type: Type.OBJECT,
+              properties: {
+                value: { type: Type.NUMBER },
+                unit: { type: Type.STRING },
+                lower: { type: Type.NUMBER },
+                upper: { type: Type.NUMBER }
+              },
+              required: ["unit"]
+            },
+            uncertainty: { type: Type.STRING, enum: ["low", "medium", "high", "unavailable"] },
+            risk_level: { type: Type.STRING, enum: ["low", "medium", "high", "blocked"] },
+            action: { type: Type.STRING, enum: ["increase", "maintain", "reduce", "test", "investigate", "no_conclusion"] },
+            next_step: { type: Type.STRING },
+            limitations: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["title", "question", "evidence_ids", "evidence_summary", "analysis", "conclusion", "recommendation", "estimated_impact", "uncertainty", "risk_level", "action", "next_step", "limitations"]
+        }
       }
     });
 
-    return text || getHeuristicFallback();
+    if (!text) return getHeuristicFallback();
+
+    const data = JSON.parse(text);
+    
+    return `### ${data.title}
+**Pergunta/Contexto**: ${data.question}
+
+**Resumo das Evidências**: ${data.evidence_summary}
+
+**Análise**: ${data.analysis}
+
+**Conclusão**: ${data.conclusion}
+
+**Recomendação (${data.action.toUpperCase()})**: ${data.recommendation}
+
+**Impacto Estimado**: ${data.estimated_impact.value !== null ? '+' + data.estimated_impact.value + ' ' + data.estimated_impact.unit : 'N/A'} (Mín: ${data.estimated_impact.lower}, Máx: ${data.estimated_impact.upper})
+**Risco**: ${data.risk_level.toUpperCase()} | **Incerteza**: ${data.uncertainty.toUpperCase()}
+
+**Próximo Passo**: ${data.next_step}
+
+**Limitações**:
+${data.limitations.map((l: string) => '- ' + l).join('\n')}`;
   } catch (error) {
     console.warn('[Gemini Handler] Fallback acionado para recomendação orçamentária:', error);
     return getHeuristicFallback();
@@ -184,20 +233,20 @@ export async function generateAutomatedInsights(
       id: 'insight-opp-1',
       type: 'opportunity',
       title: `${results.bestOpportunityChannel} possui o maior retorno marginal`,
-      summary: `Cada R$ 1,00 adicional investido em ${results.bestOpportunityChannel} gera aproximadamente R$ ${topChannel?.marginalRoi?.toFixed(2) || '2.80'} em receita incremental.`,
-      detail: `O canal ainda não atingiu sua zona de saturação severa (operando em ~${topChannel?.saturationLevel || 40}% da capacidade máxima da curva de Hill).`,
+      summary: `Cada R$ 1,00 adicional investido em ${results.bestOpportunityChannel} gera aproximadamente R$ ${topChannel?.marginalRoi?.toFixed(2) || 'N/A'} em receita incremental.`,
+      detail: `O canal ainda não atingiu sua zona de saturação severa (operando em ~${topChannel?.saturationLevel?.toFixed(0) || 'N/A'}% da capacidade máxima da curva de Hill).`,
       channel: results.bestOpportunityChannel,
-      metric: `mROI: ${topChannel?.marginalRoi?.toFixed(2) || '2.80'}x`,
+      metric: `mROI: ${topChannel?.marginalRoi?.toFixed(2) || 'N/A'}x`,
       actionableStep: `Aumente a alocação gradual em ${results.bestOpportunityChannel} em +15% a +25% no próximo ciclo.`
     },
     {
       id: 'insight-sat-1',
       type: 'saturation',
       title: `${results.saturatedChannel} apresenta sinais de saturação`,
-      summary: `O canal atingiu nível de saturação de ${satChannel?.saturationLevel || 80}%, reduzindo a eficiência de novos investimentos.`,
+      summary: `O canal atingiu nível de saturação de ${satChannel?.saturationLevel?.toFixed(0) || 'N/A'}%, reduzindo a eficiência de novos investimentos.`,
       detail: `Na curva de Hill estimada pelo Meridian, o retorno marginal caiu significativamente em comparação ao ROI histórico médio.`,
       channel: results.saturatedChannel,
-      metric: `Saturação: ${satChannel?.saturationLevel || 80}%`,
+      metric: `Saturação: ${satChannel?.saturationLevel?.toFixed(0) || 'N/A'}%`,
       actionableStep: `Reduza o investimento excedente em ${results.saturatedChannel} e realoque para canais subinvestidos.`
     }
   ];

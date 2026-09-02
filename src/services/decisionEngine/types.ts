@@ -6,7 +6,9 @@ export type DecisionAction =
   | 'MAINTAIN'
   | 'TEST'
   | 'INVESTIGATE'
-  | 'REALLOCATE';
+  | 'REALLOCATE'
+  | 'NO_CONCLUSION'
+  | 'BLOCKED';
 
 export type DecisionPriority = 'HIGH' | 'MEDIUM' | 'LOW';
 

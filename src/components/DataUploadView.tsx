@@ -32,7 +32,6 @@ import {
 
 interface DataUploadViewProps {
   onUploadSuccess: (response: UploadResponse) => void;
-  onLoadSynthetic: () => void;
   currentDataset: UploadResponse | null;
   onNavigateToMapping: () => void;
   onNavigateToReadiness?: () => void;
@@ -41,7 +40,6 @@ interface DataUploadViewProps {
 
 export const DataUploadView: React.FC<DataUploadViewProps> = ({
   onUploadSuccess,
-  onLoadSynthetic,
   currentDataset,
   onNavigateToMapping,
   onNavigateToReadiness,
@@ -256,19 +254,6 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
         </button>
       </div>
       
-      {/* Quick Demo Button Shortcut */}
-      <div className="flex justify-end mb-4">
-        <button
-          type="button"
-          id="btn-load-synthetic-shortcut"
-          onClick={onLoadSynthetic}
-          className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-4 py-2 rounded-xl transition border border-slate-200 dark:border-slate-700 flex items-center gap-2 shadow-xs"
-        >
-          <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          <span>Explorar com Dados de Demonstração (Demo)</span>
-        </button>
-      </div>
-
       {/* API Ingestion Mode Content */}
       {ingestionMode === 'api' && (
         <div className="space-y-6 animate-fade-in">

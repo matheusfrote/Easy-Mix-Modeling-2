@@ -86,7 +86,7 @@ export function buildChannelDecisions(
   }
 
   // Portfolio-level Reallocation Decisions
-  const reallocationPairs = identifyReallocationOpportunities(channelsFeatures, benchmarks);
+  const reallocationPairs = identifyReallocationOpportunities(channelsFeatures, benchmarks, results.diagnostics);
   if (reallocationPairs.length > 0) {
     const pair = reallocationPairs[0];
     const narrative = {

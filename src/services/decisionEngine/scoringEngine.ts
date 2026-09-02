@@ -42,13 +42,17 @@ export function calculateRecommendationScore(
   } else if (decision === 'INVESTIGATE') {
     // Investigative decisions stay in moderate score band
     rawScore = Math.min(65, Math.max(30, rawScore * 0.7));
+  } else if (decision === 'NO_CONCLUSION' || decision === 'BLOCKED') {
+    rawScore = 0;
   }
 
   const finalScore = Math.round(Math.min(100, Math.max(0, rawScore)));
 
   // Priority mapping considering both score and confidence
   let priority: DecisionPriority = 'LOW';
-  if (finalScore >= PRIORITY_THRESHOLDS.high && features.confidenceScore >= 0.60) {
+  if (decision === 'BLOCKED') {
+    priority = 'HIGH';
+  } else if (finalScore >= PRIORITY_THRESHOLDS.high && features.confidenceScore >= 0.60) {
     priority = 'HIGH';
   } else if (finalScore >= PRIORITY_THRESHOLDS.medium || (decision === 'DECREASE' && features.saturationLevel > 80)) {
     priority = 'MEDIUM';

@@ -163,17 +163,6 @@ export default function App() {
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
   };
 
-  const loadInitialData = async () => {
-    try {
-      const data = await apiClient.loadSyntheticData();
-      setCurrentDataset(data);
-      const results = await apiClient.getModelResults();
-      setModelResults(results);
-    } catch (err) {
-      console.error('Failed to load initial data:', err);
-    }
-  };
-
   // Hydrate state from localforage on mount
   useEffect(() => {
     const hydrateState = async () => {
@@ -187,13 +176,8 @@ export default function App() {
         if (savedModelResults) setModelResults(savedModelResults);
         if (savedView && !getNavViewFromHash()) setCurrentView(savedView);
         if (savedDateRange) setDateRange(savedDateRange);
-
-        if (!savedDataset) {
-          await loadInitialData();
-        }
       } catch (err) {
         console.error('Failed to hydrate state from localForage', err);
-        await loadInitialData();
       } finally {
         setIsHydrated(true);
       }
@@ -254,42 +238,6 @@ export default function App() {
     setCurrentDataset(response);
     showToast('Dados importados e analisados com sucesso!');
     setCurrentView('readiness');
-  };
-
-  const handleLoadSynthetic = async () => {
-    try {
-      showToast('Carregando dataset demonstrativo de 24 meses...');
-      const data = await apiClient.loadSyntheticData();
-      setCurrentDataset(data);
-
-      const defaultModelConfig: MeridianModelConfig = {
-        dateColumn: 'date',
-        kpiColumn: 'revenue',
-        mediaChannels: [
-          { spendColumn: 'google_ads_spend', impressionsColumn: 'google_ads_impressions', channelName: 'Google Ads', channelType: 'search' },
-          { spendColumn: 'meta_ads_spend', impressionsColumn: 'meta_impressions', channelName: 'Meta Ads', channelType: 'social' },
-          { spendColumn: 'youtube_spend', impressionsColumn: 'youtube_impressions', channelName: 'YouTube', channelType: 'video' },
-          { spendColumn: 'tiktok_spend', channelName: 'TikTok', channelType: 'social' },
-          { spendColumn: 'tv_spend', channelName: 'TV', channelType: 'tv' }
-        ],
-        controlColumns: ['holiday', 'promotion', 'economic_index'],
-        seasonalityFourierTerms: 2,
-        mcmcChains: 4,
-        mcmcDraws: 1000,
-        mcmcWarmup: 500,
-        targetKpiType: 'revenue',
-        priors: {}
-      };
-
-      setIsModelRunning(true);
-      const res = await apiClient.runModel(defaultModelConfig);
-      setModelResults(res);
-      setIsModelRunning(false);
-      showToast('Dataset demonstrativo e modelo ajustados com sucesso!');
-    } catch (err: any) {
-      setIsModelRunning(false);
-      console.error('Error loading synthetic:', err);
-    }
   };
 
   const handleSaveMappings = async (newMappings: ColumnMapping[]) => {
@@ -456,7 +404,6 @@ export default function App() {
             isModelTrained={!!modelResults}
             filename={currentDataset?.filename}
             isSyntheticData={currentDataset?.isSynthetic}
-            onLoadSynthetic={handleLoadSynthetic}
             theme={theme}
             onToggleTheme={handleToggleTheme}
             availableDates={availableDates}
@@ -502,7 +449,6 @@ export default function App() {
               {currentView === 'data' && (
                 <DataUploadView
                   onUploadSuccess={handleUploadSuccess}
-                  onLoadSynthetic={handleLoadSynthetic}
                   currentDataset={currentDataset}
                   onNavigateToMapping={() => setCurrentView('mapping')}
                   onNavigateToReadiness={() => setCurrentView('readiness')}

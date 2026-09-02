@@ -2,8 +2,6 @@ import { inferColumnMappings } from '../services/dataMapper';
 import { registry } from './connectors/ConnectorRegistry';
 import { calculateDataReadinessScore } from '../services/dataReadiness';
 import { validateDataset, sanitizeDataset, DataRow } from '../services/dataValidator';
-import { fitMeridianModel, optimizeBudget, simulateScenario } from '../ml/meridianEngine';
-import { generateSyntheticDataset } from '../ml/syntheticData';
 import {
   generateAutomatedInsights,
   generateBudgetExplanation,
@@ -64,36 +62,19 @@ interface AppState {
   modelConfig: MeridianModelConfig | null;
 }
 
+// Initialize empty state
 const state: AppState = {
   dataset: null,
   activeModel: null,
   modelConfig: null
 };
 
-// Initialize with synthetic data by default so the user has an immediate working pipeline
-const initialSynthetic = generateSyntheticDataset(42);
-const initialColumns = Object.keys(initialSynthetic.rows[0]);
-const initialRows = initialSynthetic.rows as unknown as DataRow[];
-const initialMappings = inferColumnMappings(initialColumns, initialRows);
-state.dataset = {
-  rows: initialRows,
-  columns: initialColumns,
-  mappings: initialMappings,
-  isSynthetic: true
-};
-
-// Initial pre-fitted model for instant exploratory analysis
+// Initial model setup without auto-fitting
 const initialModelConfig: MeridianModelConfig = {
   dateColumn: 'date',
   kpiColumn: 'revenue',
-  mediaChannels: [
-    { spendColumn: 'google_ads_spend', impressionsColumn: 'google_ads_impressions', channelName: 'Google Ads', channelType: 'search' },
-    { spendColumn: 'meta_ads_spend', impressionsColumn: 'meta_impressions', channelName: 'Meta Ads', channelType: 'social' },
-    { spendColumn: 'youtube_spend', impressionsColumn: 'youtube_impressions', channelName: 'YouTube', channelType: 'video' },
-    { spendColumn: 'tiktok_spend', channelName: 'TikTok', channelType: 'social' },
-    { spendColumn: 'tv_spend', channelName: 'TV', channelType: 'tv' }
-  ],
-  controlColumns: ['holiday', 'promotion', 'economic_index'],
+  mediaChannels: [],
+  controlColumns: [],
   seasonalityFourierTerms: 2,
   mcmcChains: 4,
   mcmcDraws: 1000,
@@ -104,9 +85,9 @@ const initialModelConfig: MeridianModelConfig = {
 
 try {
   state.modelConfig = initialModelConfig;
-  state.activeModel = fitMeridianModel(state.dataset.rows, initialModelConfig, true);
+  state.activeModel = null;
 } catch (e) {
-  console.error('Initial model fit warning:', e);
+  console.error('Initial setup warning:', e);
 }
 
 export async function handleApiRequest(
@@ -123,34 +104,7 @@ export async function handleApiRequest(
       };
     }
 
-    // 1. Synthetic Dataset
-    if (path === '/api/synthetic-data' && method === 'GET') {
-      const syn = generateSyntheticDataset(42);
-      const cols = Object.keys(syn.rows[0]);
-      const mappings = inferColumnMappings(cols, syn.rows as unknown as DataRow[]);
-      const val = validateDataset(syn.rows as unknown as DataRow[], mappings);
-      const readiness = calculateDataReadinessScore(syn.rows as unknown as DataRow[], mappings, val);
-
-      state.dataset = {
-        rows: syn.rows as unknown as DataRow[],
-        columns: cols,
-        mappings,
-        isSynthetic: true
-      };
-
-      return {
-        status: 200,
-        data: {
-          rows: syn.rows,
-          csv: syn.csv,
-          columns: cols,
-          mappings,
-          validation: val,
-          readiness,
-          isSynthetic: true
-        }
-      };
-    }
+    // 1. (Removed Synthetic Dataset)
 
     // 2. Upload / Parse Dataset
     if (path === '/api/upload' && method === 'POST') {
@@ -295,11 +249,19 @@ export async function handleApiRequest(
           diagnostics: formatDiagnosticsWithFallbacks(pyServiceResponse.results.diagnostics)
         };
       } else {
-        // Native Bayesian engine execution
-        const nativeResults = fitMeridianModel(targetRows, modelConfig, state.dataset?.isSynthetic ?? false);
-        results = {
-          ...nativeResults,
-          diagnostics: formatDiagnosticsWithFallbacks(nativeResults.diagnostics)
+        // Fallback removed as per strict requirement - DO NOT fallback to heuristic/fake modeling
+        const errorMsg = pyServiceResponse.errors && pyServiceResponse.errors.length > 0
+          ? pyServiceResponse.errors[0].message
+          : 'O serviço Google Meridian falhou ao modelar os dados.';
+        
+        return {
+          status: 503,
+          data: {
+            code: 'MERIDIAN_UNAVAILABLE',
+            message: 'O serviço de modelagem não está disponível ou o modelo falhou.',
+            details: errorMsg,
+            retryable: true
+          }
         };
       }
 
@@ -376,12 +338,14 @@ export async function handleApiRequest(
         return { status: 400, data: { error: 'Execute o modelo Meridian antes de otimizar o orçamento.' } };
       }
 
-      const budget = Number(targetTotalBudget) || state.activeModel.totalSpend;
-      const optResult = optimizeBudget(state.activeModel, budget, constraints);
-
+      // Delegate to Python backend for optimization (not yet fully implemented in python layer)
+      // For now, return a structured error
       return {
-        status: 200,
-        data: optResult
+        status: 501,
+        data: {
+          code: 'NOT_IMPLEMENTED',
+          message: 'Otimização de orçamento real pelo Meridian ainda não implementada no backend.'
+        }
       };
     }
 
@@ -392,10 +356,12 @@ export async function handleApiRequest(
         return { status: 400, data: { error: 'Execute o modelo Meridian antes de simular cenários.' } };
       }
 
-      const sim = simulateScenario(state.activeModel, channelSpends || {});
       return {
-        status: 200,
-        data: sim
+        status: 501,
+        data: {
+          code: 'NOT_IMPLEMENTED',
+          message: 'Simulação de cenário real pelo Meridian ainda não implementada no backend.'
+        }
       };
     }
 
@@ -417,8 +383,10 @@ export async function handleApiRequest(
       if (!state.activeModel) {
         return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
       }
-      const targetOpt = optResult || optimizeBudget(state.activeModel, state.activeModel.totalSpend);
-      const explanation = await generateBudgetExplanation(state.activeModel, targetOpt, extraQuery);
+      if (!optResult) {
+        return { status: 400, data: { error: 'Nenhum resultado de otimização fornecido.' } };
+      }
+      const explanation = await generateBudgetExplanation(state.activeModel, optResult, extraQuery);
       return {
         status: 200,
         data: { explanation }
@@ -430,12 +398,8 @@ export async function handleApiRequest(
       if (!state.activeModel) {
         return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
       }
-      const opt = optimizeBudget(state.activeModel, state.activeModel.totalSpend * 1.15);
-      const report = await generateFullReport(state.activeModel, opt);
-      return {
-        status: 200,
-        data: report
-      };
+      // Cannot generate full report without optimizeBudget result right now
+      return { status: 501, data: { error: 'Geração de relatório não suportada sem opt result.' } };
     }
 
     

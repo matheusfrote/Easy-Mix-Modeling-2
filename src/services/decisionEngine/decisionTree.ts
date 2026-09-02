@@ -26,29 +26,32 @@ export function evaluateChannelDecisionTree(
   const rhatNum = typeof diagnostics?.gelmanRubinRhat === 'number'
     ? diagnostics.gelmanRubinRhat
     : parseFloat(String(diagnostics?.gelmanRubinRhat || ''));
-  const isMcmcNonConverged = diagnostics && !isNaN(rhatNum) && rhatNum > DECISION_THRESHOLDS.dataSufficiency.maxRhat;
+  const isMcmcNonConvergedNum = !isNaN(rhatNum) && rhatNum > DECISION_THRESHOLDS.dataSufficiency.maxRhat;
+  const isMcmcNonConverged = isMcmcNonConvergedNum || diagnostics?.isConverged === false;
+  
   const isHighUncertainty = features.mroiCiWidth > DECISION_THRESHOLDS.uncertainty.highCiWidthRatio || features.roiCiWidth > DECISION_THRESHOLDS.uncertainty.highCiWidthRatio;
   const isInsufficientSpend = features.spend < DECISION_THRESHOLDS.dataSufficiency.minSpend;
 
+  // Global block for rejected models
   if (isMcmcNonConverged) {
     reasonCodes.push('MCMC_NON_CONVERGED', 'HIGH_UNCERTAINTY', 'INSUFFICIENT_DATA');
     return {
-      decision: 'INVESTIGATE',
+      decision: 'BLOCKED',
       reasonCodes,
       ruleTriggered: 'DATA_SUFFICIENCY_MCMC_UNCERTAINTY',
-      confidenceAssessment: 'Convergência do modelo abaixo do ideal estatístico. Evidência insuficiente para recomendar alterações.',
-      suggestedActionRationale: 'Os dados ainda não fornecem evidências suficientes para recomendar uma mudança significativa no investimento.'
+      confidenceAssessment: 'Convergência do modelo abaixo do ideal estatístico (reprovado).',
+      suggestedActionRationale: 'Modelo reprovado. Os dados ainda não fornecem evidências confiáveis para recomendar qualquer alocação orçamentária.'
     };
   }
 
   if (isInsufficientSpend) {
     reasonCodes.push('INSUFFICIENT_DATA');
     return {
-      decision: 'INVESTIGATE',
+      decision: 'NO_CONCLUSION',
       reasonCodes,
       ruleTriggered: 'INSUFFICIENT_HISTORICAL_SPEND',
       confidenceAssessment: 'Volume de investimento histórico muito baixo para extrapolação confiável da curva de saturação.',
-      suggestedActionRationale: 'Manter monitoramento ou realizar teste controlado para colher dados suficientes de tração.'
+      suggestedActionRationale: 'Dados limitados, sem conclusão. Manter monitoramento ou realizar teste controlado para colher dados suficientes de tração.'
     };
   }
 
@@ -246,8 +249,20 @@ export function evaluateChannelDecisionTree(
  */
 export function identifyReallocationOpportunities(
   channelsFeatures: ChannelFeatures[],
-  benchmarks: PortfolioBenchmarks
+  benchmarks: PortfolioBenchmarks,
+  diagnostics?: { gelmanRubinRhat?: number | string; isConverged?: boolean }
 ): ReallocationPair[] {
+  const rhatNum = typeof diagnostics?.gelmanRubinRhat === 'number'
+    ? diagnostics.gelmanRubinRhat
+    : parseFloat(String(diagnostics?.gelmanRubinRhat || ''));
+  const isMcmcNonConvergedNum = !isNaN(rhatNum) && rhatNum > DECISION_THRESHOLDS.dataSufficiency.maxRhat;
+  const isMcmcNonConverged = isMcmcNonConvergedNum || diagnostics?.isConverged === false;
+
+  // Block reallocation completely if model is rejected
+  if (isMcmcNonConverged) {
+    return [];
+  }
+
   const pairs: ReallocationPair[] = [];
 
   // Candidates for reduction: High Saturation + Low Marginal ROI

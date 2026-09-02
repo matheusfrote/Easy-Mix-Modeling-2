@@ -386,36 +386,65 @@ export function validateDataset(
     }
 
     // Volume of history
-    if (numRows < 26) {
+    let monthsCoverage = 0;
+    if (parsedTimestamps.length > 1) {
+      const tsArray = parsedTimestamps.map(p => p.ts);
+      const minDate = new Date(Math.min(...tsArray));
+      const maxDate = new Date(Math.max(...tsArray));
+      monthsCoverage = (maxDate.getFullYear() - minDate.getFullYear()) * 12 + (maxDate.getMonth() - minDate.getMonth());
+    }
+
+    if (monthsCoverage < 24) {
       alerts.push({
         id: 'short_history_critical',
-        title: `Histórico temporal curto (${numRows} observações)`,
-        message: `O dataset possui apenas ${numRows} semanas. Recomenda-se no mínimo 52 semanas para capturar sazonalidade anual completa.`,
-        severity: numRows < 15 ? 'CRÍTICO' : 'MÉDIO',
+        title: `Histórico temporal curto (${monthsCoverage} meses)`,
+        message: `O dataset possui apenas ${monthsCoverage} meses. É obrigatório no mínimo 24 meses contínuos para modelagem Geo MMM.`,
+        severity: 'CRÍTICO',
         category: 'time_series',
         affectedColumns: [dateCol],
-        econometricImpact: 'Menos de 26 semanas ampliam a incerteza bayesiana posterior e dificultam a convergência dos parâmetros de Hill.',
-        recommendation: 'Reúna pelo menos 1 a 2 anos (52 a 104 semanas) de histórico de marketing se possível.'
+        econometricImpact: 'Menos de 24 meses impossibilita a convergência dos parâmetros e gera extrema incerteza no adstock e saturação sazonal.',
+        recommendation: 'Reúna pelo menos 2 anos completos (24 meses) de histórico de marketing.'
       });
       checks.push({
         id: 'check_history_volume',
         name: 'Volume do Histórico Temporal',
-        description: 'Mínimo de 52 semanas recomendado para modelagem bayesiana',
-        status: numRows < 15 ? 'fail' : 'warning',
-        severity: numRows < 15 ? 'CRÍTICO' : 'MÉDIO',
-        findingCount: numRows,
+        description: 'Mínimo de 24 meses obrigatório para Geo MMM, 36+ meses recomendado para Nacionais',
+        status: 'fail',
+        severity: 'CRÍTICO',
+        findingCount: monthsCoverage,
         affectedColumns: [dateCol],
-        details: `${numRows} observações disponíveis.`
+        details: `${monthsCoverage} meses disponíveis.`
+      });
+    } else if (monthsCoverage < 36) {
+      alerts.push({
+        id: 'short_history_warning',
+        title: `Histórico temporal limitado (${monthsCoverage} meses)`,
+        message: `O dataset possui ${monthsCoverage} meses. Recomenda-se no mínimo 36 meses para modelos nacionais capturarem sazonalidade anual de longo prazo.`,
+        severity: 'MÉDIO',
+        category: 'time_series',
+        affectedColumns: [dateCol],
+        econometricImpact: 'Menos de 36 meses pode ampliar a incerteza bayesiana posterior para variáveis macro.',
+        recommendation: 'Reúna pelo menos 3 anos de histórico de marketing se possível.'
+      });
+      checks.push({
+        id: 'check_history_volume',
+        name: 'Volume do Histórico Temporal',
+        description: 'Mínimo de 24 meses obrigatório para Geo MMM, 36+ meses recomendado para Nacionais',
+        status: 'warning',
+        severity: 'MÉDIO',
+        findingCount: monthsCoverage,
+        affectedColumns: [dateCol],
+        details: `${monthsCoverage} meses disponíveis.`
       });
     } else {
       checks.push({
         id: 'check_history_volume',
         name: 'Volume do Histórico Temporal',
-        description: 'Mínimo de 52 semanas recomendado para modelagem bayesiana',
+        description: 'Mínimo de 24 meses obrigatório para Geo MMM, 36+ meses recomendado para Nacionais',
         status: 'pass',
-        findingCount: numRows,
+        findingCount: monthsCoverage,
         affectedColumns: [dateCol],
-        details: `${numRows} semanas de histórico (atende ao padrão ouro do Meridian).`
+        details: `${monthsCoverage} meses de histórico (atende ao padrão ouro).`
       });
     }
   }
@@ -883,11 +912,21 @@ export function validateDataset(
   const mediumCount = alerts.filter(a => a.severity === 'MÉDIO').length;
   const lowCount = alerts.filter(a => a.severity === 'BAIXO').length;
 
+  let monthsCoverageGlobal = 0;
+  if (dateCol) {
+    const rawDates = data.map(r => parseDateSafe(String(r[dateCol] || '').trim())).filter(d => d !== null) as number[];
+    if (rawDates.length > 1) {
+      const minDate = new Date(Math.min(...rawDates));
+      const maxDate = new Date(Math.max(...rawDates));
+      monthsCoverageGlobal = (maxDate.getFullYear() - minDate.getFullYear()) * 12 + (maxDate.getMonth() - minDate.getMonth());
+    }
+  }
+
   // CRITICAL BLOCKING: Only blocks when mathematically impossible to model
   const hasNoDate = !dateCol;
   const hasNoKpi = !kpiCol;
   const hasNoChannels = spendCols.length === 0;
-  const isCriticallySmall = numRows < 15;
+  const isCriticallySmall = hasNoDate ? (numRows < 15) : (monthsCoverageGlobal < 24);
 
   const isModelBlocked = hasNoDate || hasNoKpi || hasNoChannels || isCriticallySmall || criticalCount > 0;
   let blockingReason: string | undefined;
@@ -895,7 +934,7 @@ export function validateDataset(
   if (hasNoDate) blockingReason = 'Coluna de data temporal obrigatória não está definida.';
   else if (hasNoKpi) blockingReason = 'Coluna de KPI (métrica dependente) obrigatória não está definida.';
   else if (hasNoChannels) blockingReason = 'Nenhum canal de investimento em mídia foi selecionado.';
-  else if (isCriticallySmall) blockingReason = `Volume de dados insuficiente (${numRows} linhas). Necessário ao menos 15 observações para inicializar a modelagem.`;
+  else if (isCriticallySmall) blockingReason = `Volume de dados insuficiente (${hasNoDate ? numRows + ' linhas' : monthsCoverageGlobal + ' meses'}). Necessário ao menos 24 meses.`;
   else if (criticalCount > 0) blockingReason = alerts.find(a => a.severity === 'CRÍTICO')?.title;
 
   // Health Score (0 - 100)

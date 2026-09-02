@@ -11,8 +11,6 @@ import {
 import { DataRow, StatisticalValidationReport, validateDataset, sanitizeDataset } from './dataValidator';
 import { inferColumnMappings } from './dataMapper';
 import { calculateDataReadinessScore } from './dataReadiness';
-import { generateSyntheticDataset } from '../ml/syntheticData';
-import { fitMeridianModel, optimizeBudget, simulateScenario } from '../ml/meridianEngine';
 import { generateDecisionInsights, answerStrategicQuestion } from './decisionEngine';
 
 export interface UploadResponse {
@@ -138,64 +136,6 @@ async function safeApiCall<T>(url: string, options?: RequestInit): Promise<T | n
 }
 
 export const apiClient = {
-  async loadSyntheticData(): Promise<UploadResponse> {
-    const data = await safeApiCall<any>('/api/synthetic-data');
-    if (data && data.columns && Array.isArray(data.rows)) {
-      const response: UploadResponse = {
-        rowCount: data.rows?.length || 104,
-        columnCount: data.columns?.length || 10,
-        columns: data.columns || [],
-        rows: data.rows,
-        previewRows: (data.rows || []).slice(0, 10),
-        mappings: data.mappings || [],
-        validation: data.validation,
-        readiness: data.readiness,
-        isSynthetic: true,
-        filename: 'meridian_synthetic_104weeks.csv'
-      };
-      localDatasetCache = {
-        rows: data.rows,
-        columns: data.columns,
-        mappings: data.mappings,
-        validation: data.validation,
-        readiness: data.readiness,
-        isSynthetic: true,
-        filename: response.filename
-      };
-      return response;
-    }
-
-    const syn = generateSyntheticDataset(42);
-    const cols = Object.keys(syn.rows[0]);
-    const rows = syn.rows as unknown as DataRow[];
-    const mappings = inferColumnMappings(cols, rows);
-    const val = validateDataset(rows, mappings);
-    const readiness = calculateDataReadinessScore(rows, mappings, val);
-
-    localDatasetCache = {
-      rows,
-      columns: cols,
-      mappings,
-      validation: val,
-      readiness,
-      isSynthetic: true,
-      filename: 'meridian_synthetic_104weeks.csv'
-    };
-
-    return {
-      rowCount: rows.length,
-      columnCount: cols.length,
-      columns: cols,
-      rows,
-      previewRows: rows.slice(0, 10),
-      mappings,
-      validation: val,
-      readiness,
-      isSynthetic: true,
-      filename: 'meridian_synthetic_104weeks.csv'
-    };
-  },
-
   async uploadData(rows: DataRow[], filename?: string): Promise<UploadResponse> {
     const data = await safeApiCall<any>('/api/upload', {
       method: 'POST',
@@ -344,11 +284,7 @@ export const apiClient = {
       localModelResultsCache = data;
       return data;
     }
-
-    const targetRows = rows || localDatasetCache?.rows || [];
-    const results = fitMeridianModel(targetRows, config, localDatasetCache?.isSynthetic ?? false);
-    localModelResultsCache = results;
-    return results;
+    throw new Error('Falha ao comunicar com o servidor Meridian. Serviço indisponível ou modelo não convergiu.');
   },
 
   async getModelResults(): Promise<MeridianModelResults> {
@@ -362,30 +298,7 @@ export const apiClient = {
       return localModelResultsCache;
     }
 
-    // Generate fresh model if not available
-    const syn = generateSyntheticDataset(42);
-    const rows = syn.rows as unknown as DataRow[];
-    const defaultModelConfig: MeridianModelConfig = {
-      dateColumn: 'date',
-      kpiColumn: 'revenue',
-      mediaChannels: [
-        { spendColumn: 'google_ads_spend', channelName: 'Google Ads', channelType: 'search' },
-        { spendColumn: 'meta_ads_spend', channelName: 'Meta Ads', channelType: 'social' },
-        { spendColumn: 'youtube_spend', channelName: 'YouTube', channelType: 'video' },
-        { spendColumn: 'tiktok_spend', channelName: 'TikTok', channelType: 'social' },
-        { spendColumn: 'tv_spend', channelName: 'TV', channelType: 'tv' }
-      ],
-      controlColumns: ['holiday', 'promotion', 'economic_index'],
-      seasonalityFourierTerms: 2,
-      mcmcChains: 4,
-      mcmcDraws: 1000,
-      mcmcWarmup: 500,
-      targetKpiType: 'revenue',
-      priors: {}
-    };
-    const results = fitMeridianModel(rows, defaultModelConfig, true);
-    localModelResultsCache = results;
-    return results;
+    throw new Error('Nenhum modelo disponível ou falha ao carregar resultados do servidor.');
   },
 
   async optimizeBudget(targetTotalBudget: number, constraints?: Record<string, { minSpend?: number; maxSpend?: number }>): Promise<BudgetOptimizationResult> {
@@ -398,8 +311,7 @@ export const apiClient = {
       return data;
     }
 
-    const model = localModelResultsCache || await this.getModelResults();
-    return optimizeBudget(model, targetTotalBudget, constraints);
+    throw new Error('Falha ao comunicar com o servidor para otimizar orçamento.');
   },
 
   async simulateScenario(channelSpends: Record<string, number>): Promise<ScenarioDefinition> {
@@ -412,8 +324,7 @@ export const apiClient = {
       return data;
     }
 
-    const model = localModelResultsCache || await this.getModelResults();
-    return simulateScenario(model, channelSpends);
+    throw new Error('Falha ao comunicar com o servidor para simular cenário.');
   },
 
   async generateInsights(): Promise<AIInsightItem[]> {
@@ -426,8 +337,7 @@ export const apiClient = {
       return data.insights;
     }
 
-    const model = localModelResultsCache || await this.getModelResults();
-    return getFallbackInsights(model);
+    throw new Error('Falha ao comunicar com o servidor para gerar insights.');
   },
 
   async getBudgetExplanation(optResult?: BudgetOptimizationResult, extraQuery?: string): Promise<string> {
@@ -440,9 +350,7 @@ export const apiClient = {
       return data.explanation;
     }
 
-    const model = localModelResultsCache || await this.getModelResults();
-    const opt = optResult || optimizeBudget(model, model.totalSpend);
-    return answerStrategicQuestion(extraQuery || 'resumo', model, opt);
+    throw new Error('Falha ao comunicar com o servidor para gerar explicação orçamentária.');
   },
 
   async getReport(): Promise<ExecutiveReportData> {
@@ -455,8 +363,6 @@ export const apiClient = {
       return data;
     }
 
-    const model = localModelResultsCache || await this.getModelResults();
-    const opt = optimizeBudget(model, model.totalSpend * 1.15);
-    return getFallbackReport(model, opt);
+    throw new Error('Falha ao comunicar com o servidor para gerar relatório.');
   }
 };
