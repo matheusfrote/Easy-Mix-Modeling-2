@@ -7,7 +7,6 @@ import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Sidebar, NavView } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { LandingPage } from './components/landing/LandingPage';
 import { apiClient, UploadResponse } from './services/apiClient';
 import { ColumnMapping, MeridianModelConfig, MeridianModelResults, DateRangeFilter } from './types/mmm';
 import { useIsMobile, getResponsiveOverflowClass } from './utils/responsive';
@@ -73,7 +72,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<NavView>(() => {
     const hashView = getNavViewFromHash();
     if (hashView) return hashView;
-    return 'landing';
+    return 'data';
   });
   const [currentDataset, setCurrentDataset] = useState<UploadResponse | null>(null);
   const [modelResults, setModelResults] = useState<MeridianModelResults | null>(null);
@@ -160,10 +159,30 @@ export default function App() {
   useEffect(() => {
     const hydrateState = async () => {
       try {
-        const savedDataset = await localforage.getItem<UploadResponse>('easy_mix_dataset');
-        const savedModelResults = await localforage.getItem<MeridianModelResults>('easy_mix_model_results');
+        let savedDataset = await localforage.getItem<UploadResponse>('easy_mix_dataset');
+        let savedModelResults = await localforage.getItem<MeridianModelResults>('easy_mix_model_results');
         const savedView = await localforage.getItem<NavView>('easy_mix_current_view');
         const savedDateRange = await localforage.getItem<DateRangeFilter>('easy_mix_date_range');
+
+        // Check if demonstration data should be loaded
+        if (!savedDataset || !savedModelResults) {
+          try {
+            const res = await fetch('/demo-data.json');
+            if (res.ok) {
+              const demoData = await res.json();
+              if (!savedDataset && demoData.dataset) {
+                savedDataset = demoData.dataset;
+                await localforage.setItem('easy_mix_dataset', savedDataset);
+              }
+              if (!savedModelResults && demoData.modelResults) {
+                savedModelResults = demoData.modelResults;
+                await localforage.setItem('easy_mix_model_results', savedModelResults);
+              }
+            }
+          } catch (e) {
+            console.warn('Could not fetch demo data', e);
+          }
+        }
 
         if (savedDataset) setCurrentDataset(savedDataset);
         if (savedModelResults) setModelResults(savedModelResults);
@@ -346,19 +365,6 @@ export default function App() {
     );
   }
 
-  // Render sales landing page when on landing view (synchronous, instant load)
-  if (currentView === 'landing') {
-    return (
-      <ErrorBoundary>
-        <LandingPage
-          onEnterWorkspace={() => setCurrentView('dashboard')}
-          theme={theme}
-          onToggleTheme={handleToggleTheme}
-        />
-      </ErrorBoundary>
-    );
-  }
-
   return (
     <ErrorBoundary>
       <div className="flex w-full min-h-[100dvh] h-[100dvh] overflow-hidden bg-slate-100 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 antialiased transition-colors duration-200">
@@ -414,7 +420,6 @@ export default function App() {
               })
             }
             onNavigateToSettings={() => setCurrentView('settings')}
-            onNavigateToLanding={() => setCurrentView('landing')}
           />
 
           {/* View Router */}

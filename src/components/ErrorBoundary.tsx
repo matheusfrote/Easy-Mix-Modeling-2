@@ -65,7 +65,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleGoHome = () => {
     this.setState({ hasError: false, error: null, isChunkLoadError: false });
-    window.location.hash = '#/landing';
+    window.location.hash = '#/data';
     window.location.reload();
   };
 

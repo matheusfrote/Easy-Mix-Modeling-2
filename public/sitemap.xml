@@ -2,92 +2,86 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.00</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/landing</loc>
-    <lastmod>2026-09-02</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.80</priority>
-  </url>
-  <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/dashboard</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/dashboard</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/data</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/data</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.80</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/mapping</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/mapping</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/readiness</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/readiness</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.80</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/model</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/model</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.80</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/channels</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/channels</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.90</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/budget</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/budget</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/simulator</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/simulator</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/insights</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/insights</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/library</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/library</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.80</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/methodology</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/methodology</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.80</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/report</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/report</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.80</priority>
   </url>
   <url>
-    <loc>AQ.Ab8RN6IBcDI5xGWkn4woR3B61F6ehXG9378V0GsuT3uSn3K8LA/#/settings</loc>
-    <lastmod>2026-09-02</lastmod>
+    <loc>https://ais-pre-2fwaekxosn3hca6jypeypw-779336876744.us-east1.run.app/#/settings</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.80</priority>
   </url>

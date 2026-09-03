@@ -18,7 +18,6 @@ import {
 import { DataReadinessScore } from '../types/mmm';
 
 export type NavView =
-  | 'landing'
   | 'dashboard'
   | 'data'
   | 'mapping'
@@ -236,14 +235,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* User / Engine Footer */}
         <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-950/40 text-xs flex flex-col gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => handleItemClick('landing')}
-            className="w-full py-2 px-3 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-between transition-colors border border-slate-700/50"
-          >
-            <span>Landing Page</span>
-            <span className="text-[10px] text-blue-400 font-bold">Ver &rarr;</span>
-          </button>
           <div className="flex items-center justify-between pt-1">
             <div>
               <span className="text-[11px] text-slate-300 font-medium block">Google Meridian</span>

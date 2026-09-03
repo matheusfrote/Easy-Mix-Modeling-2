@@ -11,15 +11,6 @@ export interface RouteMetadata {
 }
 
 export const ROUTE_METADATA: Record<NavView, RouteMetadata> = {
-  landing: {
-    title: 'Easy Mix Modeling | Marketing Mix Modeling (MMM) com Google Meridian',
-    description: 'Descubra o impacto real da sua mídia sem depender de pixels ou cookies. A plataforma de Marketing Mix Modeling (MMM) baseada no Google Meridian que simplifica a econometria.',
-    keywords: 'marketing mix modeling, google meridian, mmm cookieless, econometria de marketing, otimizador de orçamento, roi incremental, Purple Metrics, Ilumeo, Métricas Boss',
-    hash: '#/landing',
-    heading: 'Marketing Mix Modeling Descomplicado',
-    category: 'Landing Page & Vendas',
-    ogType: 'website'
-  },
   dashboard: {
     title: 'Visão Geral Executiva & Retorno de Mídia MMM | Easy Mix Modeling',
     description: 'Painel executivo de Marketing Mix Modeling: decomposição bayesiana de receitas, contribuição de mídia paga vs orgânica e ROI marginal com Google Meridian.',
@@ -251,7 +242,6 @@ export function getNavViewFromHash(): NavView | null {
   if (!hash) return null;
 
   const validViews: NavView[] = [
-    'landing',
     'dashboard',
     'data',
     'mapping',
@@ -287,7 +277,6 @@ export interface SeoAuditResult {
 
 export function auditApplicationSeo(): SeoAuditResult {
   const allRoutes: NavView[] = [
-    'landing',
     'dashboard',
     'data',
     'mapping',

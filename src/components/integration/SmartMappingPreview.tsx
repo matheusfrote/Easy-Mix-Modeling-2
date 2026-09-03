@@ -21,7 +21,7 @@ interface SmartMappingPreviewProps {
 }
 
 export const SmartMappingPreview: React.FC<SmartMappingPreviewProps> = ({
-  mappings,
+  mappings = [],
   onNavigateToFullMapping
 }) => {
   const getTypeBadge = (type: ColumnType) => {

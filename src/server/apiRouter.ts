@@ -1,8 +1,6 @@
 import { inferColumnMappings } from '../services/dataMapper';
-import { registry } from './connectors/ConnectorRegistry';
 import { calculateDataReadinessScore } from '../services/dataReadiness';
 import { validateDataset, sanitizeDataset, DataRow } from '../services/dataValidator';
-import { optimizeBudgetMathematical, simulateScenarioMathematical } from '../services/budgetOptimizer';
 import {
   generateAutomatedInsights,
   generateBudgetExplanation,
@@ -10,8 +8,8 @@ import {
 } from './geminiHandler';
 import { ColumnMapping, MeridianModelConfig, MeridianModelResults } from '../types/mmm';
 import { mmmServiceClient } from './services/mmmService';
-import { authRateLimiter, computeRateLimiter, uploadRateLimiter } from './security/rateLimiter';
-import { sessionManager, UserSession, WorkspaceState } from './security/sessionManager';
+import { computeRateLimiter, uploadRateLimiter } from './security/rateLimiter';
+import { sessionManager, WorkspaceState } from './security/sessionManager';
 import {
   sanitizeFilename,
   sanitizeRowsForSpreadsheet,
@@ -19,7 +17,6 @@ import {
   sanitizeAiPromptInput
 } from './security/inputSanitizer';
 import { auditLogger } from './security/auditLogger';
-import { verifyGoogleIdToken } from './security/googleAuth';
 
 /**
  * Formats Bayesian diagnostics ensuring that any non-computed or pending metrics
@@ -62,15 +59,15 @@ function formatDiagnosticsWithFallbacks(diag: any) {
 }
 
 /**
- * Extracts session token from HTTP Authorization header
+ * Extracts session token from HTTP Authorization header or cookie
  */
-function extractBearerToken(headers?: Record<string, any>): string | null {
-  if (!headers) return null;
-  const auth = headers['authorization'] || headers['Authorization'];
-  if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
-    return auth.slice(7).trim();
+function extractSessionId(headers?: Record<string, any>): string {
+  // Use anonymous session id mechanism, isolated per browser/client
+  let sid = headers && (headers['x-session-id'] || headers['X-Session-Id']);
+  if (!sid) {
+    sid = 'anon_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
   }
-  return null;
+  return sid;
 }
 
 export async function handleApiRequest(
@@ -79,132 +76,24 @@ export async function handleApiRequest(
   body: any,
   headers?: Record<string, any>,
   clientIp = '127.0.0.1'
-): Promise<{ status: number; data: any }> {
+): Promise<{ status: number; data: any; headers?: Record<string, string> }> {
   const requestId = `req_${Date.now()}_${crypto.randomUUID().replace(/-/g, '').substring(0, 10)}`;
 
   try {
     // 0. Extract Session & Isolated Tenant Workspace
-    const token = extractBearerToken(headers);
-    const session: UserSession | null = sessionManager.getSession(token || undefined);
-    const workspace: WorkspaceState = sessionManager.getWorkspace(session);
+    const sessionId = extractSessionId(headers);
+    const workspace: WorkspaceState = sessionManager.getWorkspaceBySessionId(sessionId);
+    const responseHeaders = { 'x-session-id': sessionId };
 
     // 1. Health Check (Rule 39: Does not leak python version, internal paths, or env secrets)
     if (path === '/api/health' && method === 'GET') {
       return {
         status: 200,
+        headers: responseHeaders,
         data: {
           status: 'ok',
           timestamp: new Date().toISOString()
         }
-      };
-    }
-
-    // 2. Authentication: Google OAuth 2.0 (Strict Cryptographic Verification)
-    if (path === '/api/auth/google' && method === 'POST') {
-      const authLimit = authRateLimiter.check(clientIp);
-      if (!authLimit.allowed) {
-        return {
-          status: 429,
-          data: {
-            code: 'AUTH_RATE_LIMIT',
-            error: 'Muitas tentativas de login. Aguarde 15 minutos.'
-          }
-        };
-      }
-
-      const { credential } = body || {};
-      if (!credential || typeof credential !== 'string') {
-        return { status: 401, data: { code: 'INVALID_CREDENTIAL', error: 'Token de autenticação não fornecido.' } };
-      }
-
-      let profile;
-      try {
-        profile = await verifyGoogleIdToken(credential);
-      } catch (err: any) {
-        auditLogger.log('AUTH_LOGIN_FAILURE', {
-          ip: clientIp,
-          path,
-          method,
-          details: { error: err.message }
-        });
-        return {
-          status: 401,
-          data: {
-            code: 'AUTH_FAILED',
-            error: 'Falha na validação do token Google.'
-          }
-        };
-      }
-
-      // Create cryptographically secure session
-      const newSession = sessionManager.createSession({
-        userId: `usr_${profile.googleId}`,
-        email: profile.email,
-        name: profile.name,
-        company: profile.company || 'Empresa',
-        avatar: profile.picture,
-        role: 'ANALYST',
-        plan: 'pro'
-      });
-
-      authRateLimiter.reset(clientIp);
-
-      return {
-        status: 200,
-        data: {
-          success: true,
-          token: newSession.token,
-          user: {
-            id: newSession.userId,
-            name: newSession.name,
-            email: newSession.email,
-            company: newSession.company,
-            role: newSession.role,
-            plan: newSession.plan,
-            avatar: newSession.avatar,
-            provider: 'google',
-            createdAt: new Date(newSession.createdAt).toISOString()
-          }
-        }
-      };
-    }
-
-    // 2.1 Authentication: Current Session Info (/api/auth/me)
-    if (path === '/api/auth/me' && method === 'GET') {
-      if (!session) {
-        return {
-          status: 200,
-          data: { authenticated: false, user: null }
-        };
-      }
-
-      return {
-        status: 200,
-        data: {
-          authenticated: true,
-          user: {
-            id: session.userId,
-            name: session.name,
-            email: session.email,
-            company: session.company,
-            role: session.role,
-            plan: session.plan,
-            avatar: session.avatar,
-            provider: 'google',
-            createdAt: new Date(session.createdAt).toISOString()
-          }
-        }
-      };
-    }
-
-    // 2.2 Authentication: Logout (/api/auth/logout)
-    if (path === '/api/auth/logout' && method === 'POST') {
-      if (token) {
-        sessionManager.revokeSession(token);
-      }
-      return {
-        status: 200,
-        data: { success: true, message: 'Sessão encerrada com sucesso.' }
       };
     }
 
@@ -214,19 +103,21 @@ export async function handleApiRequest(
       if (!uploadCheck.allowed) {
         return {
           status: 429,
+          headers: responseHeaders,
           data: { code: 'RATE_LIMIT', error: 'Limite de uploads atingido. Aguarde antes de enviar novo arquivo.' }
         };
       }
 
       const { rows, filename } = body || {};
       if (!rows || !Array.isArray(rows) || rows.length === 0) {
-        return { status: 400, data: { error: 'Arquivo inválido ou sem registros legíveis.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Arquivo inválido ou sem registros legíveis.' } };
       }
 
       // Hard row count limit (10,000 rows max to prevent DoS)
       if (rows.length > 10000) {
         return {
           status: 400,
+          headers: responseHeaders,
           data: { error: 'O arquivo excede o limite máximo permitido de 10.000 linhas por dataset.' }
         };
       }
@@ -236,6 +127,7 @@ export async function handleApiRequest(
       if (rawCols.length > 60) {
         return {
           status: 400,
+          headers: responseHeaders,
           data: { error: 'O arquivo excede o limite máximo permitido de 60 colunas.' }
         };
       }
@@ -267,14 +159,14 @@ export async function handleApiRequest(
       workspace.lastUpdated = Date.now();
 
       auditLogger.log('DATASET_UPLOAD', {
-        sessionId: session?.sessionId,
-        userId: session?.userId,
+        sessionId: sessionId,
         ip: clientIp,
         details: { rowCount: sanitizedRows.length, colCount: rawCols.length, filename: safeFilename }
       });
 
       return {
         status: 200,
+        headers: responseHeaders,
         data: {
           rowCount: sanitizedRows.length,
           columnCount: rawCols.length,
@@ -295,7 +187,7 @@ export async function handleApiRequest(
       const targetMappings = mappings || workspace.dataset?.mappings;
 
       if (!targetRows || targetRows.length === 0) {
-        return { status: 400, data: { error: 'Nenhum dado carregado para validação.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Nenhum dado carregado para validação.' } };
       }
 
       const val = validateDataset(targetRows, targetMappings);
@@ -303,6 +195,7 @@ export async function handleApiRequest(
 
       return {
         status: 200,
+        headers: responseHeaders,
         data: {
           validation: val,
           readiness
@@ -317,7 +210,7 @@ export async function handleApiRequest(
       const targetMappings = mappings || workspace.dataset?.mappings;
 
       if (!targetRows || !targetMappings) {
-        return { status: 400, data: { error: 'Nenhum dado ou mapeamento carregado para saneamento.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Nenhum dado ou mapeamento carregado para saneamento.' } };
       }
 
       const sanitizeResult = sanitizeDataset(targetRows, targetMappings);
@@ -330,14 +223,14 @@ export async function handleApiRequest(
       const readiness = calculateDataReadinessScore(sanitizeResult.cleanedRows, targetMappings, val);
 
       auditLogger.log('DATASET_SANITIZE', {
-        sessionId: session?.sessionId,
-        userId: session?.userId,
+        sessionId: sessionId,
         ip: clientIp,
         details: { fixedIssuesCount: sanitizeResult.fixedIssues.length }
       });
 
       return {
         status: 200,
+        headers: responseHeaders,
         data: {
           success: true,
           cleanedRows: sanitizeResult.cleanedRows,
@@ -361,6 +254,7 @@ export async function handleApiRequest(
       }
       return {
         status: 200,
+        headers: responseHeaders,
         data: {
           success: true,
           mappings: workspace.dataset?.mappings || []
@@ -374,6 +268,7 @@ export async function handleApiRequest(
       if (!computeCheck.allowed) {
         return {
           status: 429,
+          headers: responseHeaders,
           data: { code: 'RATE_LIMIT', error: 'Muitas execuções simultâneas de modelagem. Aguarde um minuto.' }
         };
       }
@@ -383,10 +278,10 @@ export async function handleApiRequest(
       const modelConfig: MeridianModelConfig = config || workspace.modelConfig;
 
       if (!targetRows || targetRows.length === 0) {
-        return { status: 400, data: { error: 'Nenhum dado disponível para execução do modelo.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Nenhum dado disponível para execução do modelo.' } };
       }
       if (!modelConfig || !modelConfig.mediaChannels || modelConfig.mediaChannels.length === 0) {
-        return { status: 400, data: { error: 'Configuração do Meridian inválida: selecione ao menos 1 canal de mídia.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Configuração do Meridian inválida: selecione ao menos 1 canal de mídia.' } };
       }
 
       // Enforce server-side parameter bounds to prevent MCMC Resource Exhaustion
@@ -394,8 +289,7 @@ export async function handleApiRequest(
       workspace.modelConfig = clampedConfig;
 
       auditLogger.log('MODEL_RUN_STARTED', {
-        sessionId: session?.sessionId,
-        userId: session?.userId,
+        sessionId: sessionId,
         ip: clientIp,
         details: { channelsCount: clampedConfig.mediaChannels.length, chains: clampedConfig.mcmcChains, draws: clampedConfig.mcmcDraws }
       });
@@ -418,14 +312,14 @@ export async function handleApiRequest(
           : 'O serviço de modelagem econométrica não pôde concluir o ajuste.';
 
         auditLogger.log('MODEL_RUN_FAILED', {
-          sessionId: session?.sessionId,
-          userId: session?.userId,
+          sessionId: sessionId,
           ip: clientIp,
           details: { error: errorMsg }
         });
 
         return {
           status: 503,
+          headers: responseHeaders,
           data: {
             code: 'MERIDIAN_UNAVAILABLE',
             message: 'O serviço de modelagem falhou ao processar a cadeia MCMC.',
@@ -439,14 +333,14 @@ export async function handleApiRequest(
       workspace.lastUpdated = Date.now();
 
       auditLogger.log('MODEL_RUN_COMPLETED', {
-        sessionId: session?.sessionId,
-        userId: session?.userId,
+        sessionId: sessionId,
         ip: clientIp,
         details: { modelId: results.modelId }
       });
 
       return {
         status: 200,
+        headers: responseHeaders,
         data: results
       };
     }
@@ -456,6 +350,7 @@ export async function handleApiRequest(
       if (!workspace.activeModel) {
         return {
           status: 404,
+          headers: responseHeaders,
           data: { error: 'Nenhum modelo Meridian em execução para exibição de diagnósticos.' }
         };
       }
@@ -464,6 +359,7 @@ export async function handleApiRequest(
 
       return {
         status: 200,
+        headers: responseHeaders,
         data: {
           diagnostics: formatDiagnosticsWithFallbacks(workspace.activeModel.diagnostics),
           posteriorMetrics: workspace.activeModel.diagnostics?.posteriorMetrics || {
@@ -481,11 +377,13 @@ export async function handleApiRequest(
       if (!workspace.activeModel) {
         return {
           status: 404,
+          headers: responseHeaders,
           data: { status: 'idle', message: 'Nenhum modelo Meridian em execução.' }
         };
       }
       return {
         status: 200,
+        headers: responseHeaders,
         data: {
           ...workspace.activeModel,
           diagnostics: formatDiagnosticsWithFallbacks(workspace.activeModel.diagnostics)
@@ -496,10 +394,11 @@ export async function handleApiRequest(
     // 7. Channel Performance
     if (path === '/api/channel-performance' && method === 'GET') {
       if (!workspace.activeModel) {
-        return { status: 404, data: { error: 'Modelo não executado ainda.' } };
+        return { status: 404, headers: responseHeaders, data: { error: 'Modelo não executado ainda.' } };
       }
       return {
         status: 200,
+        headers: responseHeaders,
         data: {
           channels: workspace.activeModel.channels,
           responseCurves: workspace.activeModel.responseCurves,
@@ -512,12 +411,12 @@ export async function handleApiRequest(
     if (path === '/api/optimize-budget' && method === 'POST') {
       const { targetTotalBudget, constraints } = body || {};
       if (!workspace.activeModel) {
-        return { status: 400, data: { error: 'Execute o modelo Meridian antes de otimizar o orçamento.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Execute o modelo Meridian antes de otimizar o orçamento.' } };
       }
 
       const budget = Number(targetTotalBudget) || workspace.activeModel.totalSpend;
 
-      // Try official Meridian microservice optimizer first
+      // Try official Meridian microservice optimizer
       const pyOptResult = await mmmServiceClient.optimizeBudget({
         targetTotalBudget: budget,
         constraints,
@@ -525,22 +424,24 @@ export async function handleApiRequest(
         activeModel: workspace.activeModel
       });
 
-      const optResult = pyOptResult || {
-        ...optimizeBudgetMathematical(workspace.activeModel, budget, constraints),
-        engine: 'analytical-hill',
-        methodology: 'Equimarginalidade Gulosa baseada nas Curvas Hill do modelo ajustado'
-      };
+      if (pyOptResult.status !== 'success') {
+        return {
+          status: pyOptResult.status === 'service_unavailable' ? 503 : 500,
+          headers: responseHeaders,
+          data: pyOptResult
+        };
+      }
 
       auditLogger.log('BUDGET_OPTIMIZED', {
-        sessionId: session?.sessionId,
-        userId: session?.userId,
+        sessionId: sessionId,
         ip: clientIp,
-        details: { targetTotalBudget: budget, engine: optResult.engine }
+        details: { targetTotalBudget: budget, engine: pyOptResult.engine }
       });
 
       return {
         status: 200,
-        data: optResult
+        headers: responseHeaders,
+        data: pyOptResult.results
       };
     }
 
@@ -548,32 +449,34 @@ export async function handleApiRequest(
     if (path === '/api/simulate' && method === 'POST') {
       const { channelSpends } = body || {};
       if (!workspace.activeModel) {
-        return { status: 400, data: { error: 'Execute o modelo Meridian antes de simular cenários.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Execute o modelo Meridian antes de simular cenários.' } };
       }
 
-      // Try official Meridian microservice simulation first
+      // Try official Meridian microservice simulation
       const pySim = await mmmServiceClient.simulateScenario({
         channelSpends: channelSpends || {},
         modelId: workspace.activeModel.modelId,
         activeModel: workspace.activeModel
       });
 
-      const sim = pySim || {
-        ...simulateScenarioMathematical(workspace.activeModel, channelSpends || {}),
-        engine: 'analytical-hill',
-        methodology: 'Projeção Hill com Intervalos de Credibilidade Posteriores'
-      };
+      if (pySim.status !== 'success') {
+        return {
+          status: pySim.status === 'service_unavailable' ? 503 : 500,
+          headers: responseHeaders,
+          data: pySim
+        };
+      }
 
       auditLogger.log('SCENARIO_SIMULATED', {
-        sessionId: session?.sessionId,
-        userId: session?.userId,
+        sessionId: sessionId,
         ip: clientIp,
-        details: { engine: sim.engine }
+        details: { engine: pySim.engine }
       });
 
       return {
         status: 200,
-        data: sim
+        headers: responseHeaders,
+        data: pySim.results
       };
     }
 
@@ -581,15 +484,16 @@ export async function handleApiRequest(
     if (path === '/api/generate-insights' && method === 'POST') {
       const computeCheck = computeRateLimiter.check(clientIp);
       if (!computeCheck.allowed) {
-        return { status: 429, data: { error: 'Muitas requisições de geração de insights. Aguarde um instante.' } };
+        return { status: 429, headers: responseHeaders, data: { error: 'Muitas requisições de geração de insights. Aguarde um instante.' } };
       }
 
       if (!workspace.activeModel) {
-        return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Modelo Meridian não disponível.' } };
       }
       const insights = await generateAutomatedInsights(workspace.activeModel);
       return {
         status: 200,
+        headers: responseHeaders,
         data: { insights }
       };
     }
@@ -598,15 +502,15 @@ export async function handleApiRequest(
     if (path === '/api/budget-explanation' && method === 'POST') {
       const computeCheck = computeRateLimiter.check(clientIp);
       if (!computeCheck.allowed) {
-        return { status: 429, data: { error: 'Muitas requisições de explicação orçamentária. Aguarde um instante.' } };
+        return { status: 429, headers: responseHeaders, data: { error: 'Muitas requisições de explicação orçamentária. Aguarde um instante.' } };
       }
 
       const { optResult, extraQuery } = body || {};
       if (!workspace.activeModel) {
-        return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Modelo Meridian não disponível.' } };
       }
       if (!optResult) {
-        return { status: 400, data: { error: 'Nenhum resultado de otimização fornecido.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Nenhum resultado de otimização fornecido.' } };
       }
 
       // Mitigate Prompt Injection: sanitize and clamp extraQuery
@@ -615,6 +519,7 @@ export async function handleApiRequest(
       const explanation = await generateBudgetExplanation(workspace.activeModel, optResult, safeQuery);
       return {
         status: 200,
+        headers: responseHeaders,
         data: { explanation }
       };
     }
@@ -623,394 +528,44 @@ export async function handleApiRequest(
     if (path === '/api/report' && method === 'POST') {
       const computeCheck = computeRateLimiter.check(clientIp);
       if (!computeCheck.allowed) {
-        return { status: 429, data: { error: 'Muitas requisições de relatório. Aguarde um instante.' } };
+        return { status: 429, headers: responseHeaders, data: { error: 'Muitas requisições de relatório. Aguarde um instante.' } };
       }
 
       if (!workspace.activeModel) {
-        return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
+        return { status: 400, headers: responseHeaders, data: { error: 'Modelo Meridian não disponível.' } };
       }
 
-      const opt = optimizeBudgetMathematical(workspace.activeModel, workspace.activeModel.totalSpend * 1.15);
-      const report = await generateFullReport(workspace.activeModel, opt);
+      const pyOptResult = await mmmServiceClient.optimizeBudget({
+        targetTotalBudget: workspace.activeModel.totalSpend * 1.15,
+        modelId: workspace.activeModel.modelId,
+        activeModel: workspace.activeModel
+      });
+
+      if (pyOptResult.status !== 'success') {
+        return {
+          status: pyOptResult.status === 'service_unavailable' ? 503 : 500,
+          headers: responseHeaders,
+          data: pyOptResult
+        };
+      }
+
+      const report = await generateFullReport(workspace.activeModel, pyOptResult.results);
 
       auditLogger.log('REPORT_GENERATED', {
-        sessionId: session?.sessionId,
-        userId: session?.userId,
+        sessionId: sessionId,
         ip: clientIp
       });
 
-      return { status: 200, data: { report } };
-    }
-
-    // 13. Connectors API - List
-    if (path === '/api/connectors/list' && method === 'GET') {
-      return {
-        status: 200,
-        data: { connectors: registry.listAvailable() }
-      };
-    }
-
-    // 13.1 Connectors API - Auth (Credentials strictly kept server-side)
-    if (path === '/api/connectors/auth' && method === 'POST') {
-      try {
-        const { connectorId, credentials } = body || {};
-        if (!connectorId || typeof connectorId !== 'string') {
-          return { status: 400, data: { error: 'connectorId obrigatório' } };
-        }
-        const connector = registry.get(connectorId);
-        const result = await connector.authenticate(credentials);
-        return {
-          status: 200,
-          data: { success: result }
-        };
-      } catch (err: any) {
-        return {
-          status: 400,
-          data: { error: err.message }
-        };
-      }
-    }
-
-    // 13.2 Connectors API - Sync
-    if (path === '/api/connectors/sync' && method === 'POST') {
-      try {
-        const { connectorId, config } = body || {};
-        const connector = registry.get(connectorId);
-        const result = await connector.sync(config);
-
-        if (result.success) {
-          if (!workspace.dataset) {
-            workspace.dataset = {
-              rows: [],
-              columns: [],
-              mappings: [],
-              filename: 'connector_sync.csv'
-            };
-          }
-
-          // Sanitize incoming rows to prevent Formula Injection
-          const cleanSyncedRows = sanitizeRowsForSpreadsheet(result.rows as any);
-          cleanSyncedRows.forEach(r => workspace.dataset!.rows.push(r as any));
-
-          if (workspace.dataset.rows.length > 0) {
-            workspace.dataset.columns = Array.from(new Set(workspace.dataset.rows.flatMap(Object.keys)));
-            workspace.dataset.mappings = inferColumnMappings(workspace.dataset.columns, workspace.dataset.rows);
-            const val = validateDataset(workspace.dataset.rows, workspace.dataset.mappings);
-            const readiness = calculateDataReadinessScore(workspace.dataset.rows, workspace.dataset.mappings, val);
-            result.dataset = {
-              rows: workspace.dataset.rows,
-              columns: workspace.dataset.columns,
-              mappings: workspace.dataset.mappings,
-              validation: val,
-              readiness
-            };
-          }
-        }
-
-        return {
-          status: result.success ? 200 : 400,
-          data: result
-        };
-      } catch (err: any) {
-        return {
-          status: 500,
-          data: { error: err.message }
-        };
-      }
-    }
-
-    // 14. Settings API - Ads Connection Status (Google Ads & Meta Ads)
-    if (path === '/api/settings/ads-status' && method === 'GET') {
-      const userCreds = sessionManager.getAdsCredentials(session);
-
-      // Environment variables checks
-      const envGoogleDevToken = Boolean(process.env.GOOGLE_ADS_DEVELOPER_TOKEN);
-      const envGoogleClientId = Boolean(process.env.GOOGLE_ADS_CLIENT_ID);
-      const envGoogleClientSecret = Boolean(process.env.GOOGLE_ADS_CLIENT_SECRET);
-      const envGoogleCustomerId = Boolean(process.env.GOOGLE_ADS_CUSTOMER_ID);
-
-      const envMetaClientId = Boolean(process.env.META_CLIENT_ID);
-      const envMetaClientSecret = Boolean(process.env.META_CLIENT_SECRET);
-      const envMetaAccessToken = Boolean(process.env.META_ACCESS_TOKEN);
-      const envMetaAdAccountId = Boolean(process.env.META_AD_ACCOUNT_ID);
-
-      // User session credentials checks
-      const userGoogleDevToken = Boolean(userCreds.googleAds?.developerToken);
-      const userGoogleClientId = Boolean(userCreds.googleAds?.clientId);
-      const userGoogleClientSecret = Boolean(userCreds.googleAds?.clientSecret);
-      const userGoogleCustomerId = Boolean(userCreds.googleAds?.customerId);
-
-      const userMetaClientId = Boolean(userCreds.metaAds?.clientId);
-      const userMetaClientSecret = Boolean(userCreds.metaAds?.clientSecret);
-      const userMetaAccessToken = Boolean(userCreds.metaAds?.accessToken);
-      const userMetaAdAccountId = Boolean(userCreds.metaAds?.adAccountId);
-
-      // Overall status
-      const googleDevTokenPresent = envGoogleDevToken || userGoogleDevToken;
-      const googleClientIdPresent = envGoogleClientId || userGoogleClientId;
-      const googleReady = googleDevTokenPresent && googleClientIdPresent;
-
-      let googleSource: 'environment' | 'user_session' | 'none' = 'none';
-      if (userGoogleDevToken || userGoogleClientId) {
-        googleSource = 'user_session';
-      } else if (envGoogleDevToken || envGoogleClientId) {
-        googleSource = 'environment';
-      }
-
-      const metaClientIdPresent = envMetaClientId || userMetaClientId;
-      const metaClientSecretPresent = envMetaClientSecret || userMetaClientSecret;
-      const metaReady = metaClientIdPresent && metaClientSecretPresent;
-
-      let metaSource: 'environment' | 'user_session' | 'none' = 'none';
-      if (userMetaClientId || userMetaClientSecret) {
-        metaSource = 'user_session';
-      } else if (envMetaClientId || envMetaClientSecret) {
-        metaSource = 'environment';
-      }
-
-      const maskId = (id?: string) => {
-        if (!id) return undefined;
-        const clean = id.trim();
-        if (clean.length <= 4) return '***';
-        return `${clean.slice(0, 3)}***${clean.slice(-4)}`;
-      };
-
-      const rawGoogleCustId = userCreds.googleAds?.customerId || process.env.GOOGLE_ADS_CUSTOMER_ID;
-      const rawMetaAcctId = userCreds.metaAds?.adAccountId || process.env.META_AD_ACCOUNT_ID;
-
-      return {
-        status: 200,
-        data: {
-          isAuthenticated: Boolean(session),
-          googleAds: {
-            isConfigured: googleReady,
-            status: googleReady ? (googleSource === 'environment' ? 'env_connected' : 'user_connected') : 'disconnected',
-            source: googleSource,
-            details: {
-              developerTokenPresent: googleDevTokenPresent,
-              clientIdPresent: googleClientIdPresent,
-              clientSecretPresent: envGoogleClientSecret || userGoogleClientSecret,
-              customerIdPresent: envGoogleCustomerId || userGoogleCustomerId,
-              refreshTokenPresent: Boolean(userCreds.googleAds?.refreshToken || process.env.GOOGLE_ADS_REFRESH_TOKEN)
-            },
-            maskedCustomerId: maskId(rawGoogleCustId),
-            lastConfiguredAt: userCreds.googleAds?.configuredAt ? new Date(userCreds.googleAds.configuredAt).toISOString() : null
-          },
-          metaAds: {
-            isConfigured: metaReady,
-            status: metaReady ? (metaSource === 'environment' ? 'env_connected' : 'user_connected') : 'disconnected',
-            source: metaSource,
-            details: {
-              clientIdPresent: metaClientIdPresent,
-              clientSecretPresent: metaClientSecretPresent,
-              accessTokenPresent: envMetaAccessToken || userMetaAccessToken,
-              adAccountIdPresent: envMetaAdAccountId || userMetaAdAccountId
-            },
-            maskedAccountId: maskId(rawMetaAcctId),
-            lastConfiguredAt: userCreds.metaAds?.configuredAt ? new Date(userCreds.metaAds.configuredAt).toISOString() : null
-          }
-        }
-      };
-    }
-
-    // 14.1 Settings API - Update Ads Credentials (Strictly Auth-Protected)
-    if (path === '/api/settings/ads-credentials' && method === 'POST') {
-      if (!session) {
-        return {
-          status: 401,
-          data: {
-            code: 'AUTH_REQUIRED',
-            error: 'Autenticação necessária para configurar credenciais de anúncios.'
-          }
-        };
-      }
-
-      const { platform, credentials } = body || {};
-      if (platform !== 'google-ads' && platform !== 'meta-ads') {
-        return {
-          status: 400,
-          data: { error: 'Plataforma inválida. Use "google-ads" ou "meta-ads".' }
-        };
-      }
-
-      if (!credentials || typeof credentials !== 'object') {
-        return {
-          status: 400,
-          data: { error: 'Corpo de credenciais inválido.' }
-        };
-      }
-
-      // Sanitize inputs (max length checks, trim whitespace)
-      const sanitized: Record<string, string> = {};
-      for (const [key, val] of Object.entries(credentials)) {
-        if (typeof val === 'string') {
-          sanitized[key] = val.trim().slice(0, 500);
-        }
-      }
-
-      sessionManager.setAdsCredentials(session, platform, sanitized);
-
-      auditLogger.log('ADS_CREDENTIALS_UPDATED', {
-        sessionId: session.sessionId,
-        userId: session.userId,
-        ip: clientIp,
-        details: {
-          platform,
-          configuredFields: Object.keys(sanitized).filter(k => Boolean(sanitized[k]))
-        }
-      });
-
-      return {
-        status: 200,
-        data: {
-          success: true,
-          message: `Credenciais de ${platform === 'google-ads' ? 'Google Ads' : 'Meta Ads'} salvas com sucesso para a sessão.`
-        }
-      };
-    }
-
-    // 14.2 Settings API - Clear Ads Credentials (Strictly Auth-Protected)
-    if (path === '/api/settings/ads-credentials' && method === 'DELETE') {
-      if (!session) {
-        return {
-          status: 401,
-          data: {
-            code: 'AUTH_REQUIRED',
-            error: 'Autenticação necessária para alterar credenciais de anúncios.'
-          }
-        };
-      }
-
-      const { platform } = body || {};
-      if (platform !== 'google-ads' && platform !== 'meta-ads') {
-        return {
-          status: 400,
-          data: { error: 'Plataforma inválida. Use "google-ads" ou "meta-ads".' }
-        };
-      }
-
-      sessionManager.removeAdsCredentials(session, platform);
-
-      auditLogger.log('ADS_CREDENTIALS_REMOVED', {
-        sessionId: session.sessionId,
-        userId: session.userId,
-        ip: clientIp,
-        details: { platform }
-      });
-
-      return {
-        status: 200,
-        data: {
-          success: true,
-          message: `Credenciais personalizadas de ${platform === 'google-ads' ? 'Google Ads' : 'Meta Ads'} removidas com sucesso.`
-        }
-      };
-    }
-
-    // 14.3 Settings API - Test Ads Connection
-    if (path === '/api/settings/ads-test-connection' && method === 'POST') {
-      const { platform, credentials } = body || {};
-      if (platform !== 'google-ads' && platform !== 'meta-ads') {
-        return {
-          status: 400,
-          data: { error: 'Plataforma inválida. Use "google-ads" ou "meta-ads".' }
-        };
-      }
-
-      const userCreds = sessionManager.getAdsCredentials(session);
-
-      if (platform === 'google-ads') {
-        const devToken = credentials?.developerToken || userCreds.googleAds?.developerToken || process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
-        const clientId = credentials?.clientId || userCreds.googleAds?.clientId || process.env.GOOGLE_ADS_CLIENT_ID;
-
-        if (!devToken) {
-          return {
-            status: 400,
-            data: { success: false, error: 'Developer Token do Google Ads ausente. Preencha no formulário ou defina no .env' }
-          };
-        }
-        if (!clientId) {
-          return {
-            status: 400,
-            data: { success: false, error: 'Client ID OAuth do Google Ads ausente. Preencha no formulário ou defina no .env' }
-          };
-        }
-
-        if (devToken.length < 5) {
-          return {
-            status: 400,
-            data: { success: false, error: 'Formato inválido para o Developer Token (mínimo 5 caracteres).' }
-          };
-        }
-
-        auditLogger.log('ADS_CONNECTION_TESTED', {
-          sessionId: session?.sessionId,
-          userId: session?.userId,
-          ip: clientIp,
-          details: { platform: 'google-ads', success: true }
-        });
-
-        return {
-          status: 200,
-          data: {
-            success: true,
-            platform: 'google-ads',
-            latencyMs: 135,
-            message: 'Comunicação com a API do Google Ads validada com sucesso!',
-            details: {
-              developerTokenValidated: true,
-              clientIdValidated: true
-            }
-          }
-        };
-      }
-
-      if (platform === 'meta-ads') {
-        const clientId = credentials?.clientId || userCreds.metaAds?.clientId || process.env.META_CLIENT_ID;
-        const clientSecret = credentials?.clientSecret || userCreds.metaAds?.clientSecret || process.env.META_CLIENT_SECRET;
-
-        if (!clientId) {
-          return {
-            status: 400,
-            data: { success: false, error: 'App/Client ID da Meta ausente. Preencha no formulário ou defina no .env' }
-          };
-        }
-        if (!clientSecret) {
-          return {
-            status: 400,
-            data: { success: false, error: 'App Secret da Meta ausente. Preencha no formulário ou defina no .env' }
-          };
-        }
-
-        auditLogger.log('ADS_CONNECTION_TESTED', {
-          sessionId: session?.sessionId,
-          userId: session?.userId,
-          ip: clientIp,
-          details: { platform: 'meta-ads', success: true }
-        });
-
-        return {
-          status: 200,
-          data: {
-            success: true,
-            platform: 'meta-ads',
-            latencyMs: 154,
-            message: 'Comunicação com a API Meta Marketing validada com sucesso!',
-            details: {
-              appIdValidated: true,
-              appSecretValidated: true
-            }
-          }
-        };
-      }
+      return { status: 200, headers: responseHeaders, data: report };
     }
 
     return {
       status: 404,
+      headers: responseHeaders,
       data: { code: 'NOT_FOUND', error: `Rota desconhecida: ${method} ${path}` }
     };
   } catch (err: any) {
-    auditLogger.log('AUTH_LOGIN_FAILURE', {
+    auditLogger.log('API_ERROR', {
       ip: clientIp,
       path,
       method,

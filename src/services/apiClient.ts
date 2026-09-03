@@ -78,19 +78,30 @@ export class ApiError extends Error {
 // Robust helper to perform safe JSON API requests and prevent "Unexpected token < in JSON at position 0"
 async function safeApiCall<T>(url: string, options?: RequestInit, throwOnError = false): Promise<T | null> {
   try {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
+    let sessionId = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_session_id') : null;
+    if (!sessionId && typeof window !== 'undefined') {
+      sessionId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+      localStorage.setItem('easy_mix_session_id', sessionId);
+    }
     const headers: Record<string, string> = {
       ...(options?.headers as Record<string, string> || {})
     };
 
-    if (token && !headers['Authorization']) {
-      headers['Authorization'] = `Bearer ${token}`;
+    if (sessionId && !headers['x-session-id']) {
+      headers['x-session-id'] = sessionId;
     }
 
     const res = await fetch(url, {
       ...options,
       headers
     });
+    
+    // Save session id if backend provided a new one
+    const returnedSessionId = res.headers.get('x-session-id');
+    if (returnedSessionId && typeof window !== 'undefined') {
+      localStorage.setItem('easy_mix_session_id', returnedSessionId);
+    }
+
     if (!res.ok) {
       let errorData: any = null;
       try {
@@ -362,103 +373,5 @@ export const apiClient = {
     }
 
     throw new Error('Falha ao comunicar com o servidor para gerar relatório.');
-  },
-
-  async getAdsStatus(): Promise<AdsConnectionStatusResponse> {
-    const data = await safeApiCall<AdsConnectionStatusResponse>('/api/settings/ads-status', {
-      method: 'GET'
-    });
-    if (data) {
-      return data;
-    }
-    // Fallback if network issue or cold start
-    return {
-      isAuthenticated: false,
-      googleAds: {
-        isConfigured: false,
-        status: 'disconnected',
-        source: 'none',
-        details: {
-          developerTokenPresent: false,
-          clientIdPresent: false,
-          clientSecretPresent: false,
-          customerIdPresent: false
-        },
-        lastConfiguredAt: null
-      },
-      metaAds: {
-        isConfigured: false,
-        status: 'disconnected',
-        source: 'none',
-        details: {
-          clientIdPresent: false,
-          clientSecretPresent: false,
-          accessTokenPresent: false,
-          adAccountIdPresent: false
-        },
-        lastConfiguredAt: null
-      }
-    };
-  },
-
-  async saveAdsCredentials(
-    platform: 'google-ads' | 'meta-ads',
-    credentials: Record<string, string>
-  ): Promise<{ success: boolean; message: string }> {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
-    const res = await fetch('/api/settings/ads-credentials', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({ platform, credentials })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Falha ao salvar credenciais.');
-    }
-    return data;
-  },
-
-  async clearAdsCredentials(platform: 'google-ads' | 'meta-ads'): Promise<{ success: boolean; message: string }> {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
-    const res = await fetch('/api/settings/ads-credentials', {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({ platform })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Falha ao remover credenciais.');
-    }
-    return data;
-  },
-
-  async testAdsConnection(
-    platform: 'google-ads' | 'meta-ads',
-    credentials?: Record<string, string>
-  ): Promise<{ success: boolean; latencyMs?: number; message: string; error?: string }> {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
-    const res = await fetch('/api/settings/ads-test-connection', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({ platform, credentials })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      return {
-        success: false,
-        message: data.error || 'Falha no teste de conexão.',
-        error: data.error
-      };
-    }
-    return data;
   }
 };

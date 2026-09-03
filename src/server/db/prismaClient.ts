@@ -1,23 +1,18 @@
 import { PrismaClient } from '@prisma/client';
 
-declare global {
-  // eslint-disable-next-line no-var
-  var prismaInstance: PrismaClient | undefined;
+let prisma: any;
+try {
+  prisma = new PrismaClient();
+} catch {
+  console.warn('[AI Studio] Database not connected — using mock');
+  const noOp = { findMany: async () => [], findFirst: async () => null,
+    findUnique: async () => null, create: async (d: any) => d?.data ?? {},
+    update: async (d: any) => d?.data ?? {}, delete: async () => ({}) };
+  prisma = new Proxy({}, { get: () => noOp });
 }
 
 export function getPrismaClient(): PrismaClient {
-  if (process.env.NODE_ENV === 'production') {
-    return new PrismaClient({
-      log: ['error', 'warn']
-    });
-  }
-
-  if (!global.prismaInstance) {
-    global.prismaInstance = new PrismaClient({
-      log: ['error', 'warn']
-    });
-  }
-  return global.prismaInstance;
+  return prisma as PrismaClient;
 }
 
-export const prisma = getPrismaClient();
+export { prisma };

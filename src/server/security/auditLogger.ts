@@ -25,7 +25,8 @@ export type AuditAction =
   | 'MCMC_BOUNDS_CLAMPED'
   | 'ADS_CREDENTIALS_UPDATED'
   | 'ADS_CREDENTIALS_REMOVED'
-  | 'ADS_CONNECTION_TESTED';
+  | 'ADS_CONNECTION_TESTED'
+  | 'API_ERROR';
 
 export interface AuditLogEntry {
   timestamp: string;

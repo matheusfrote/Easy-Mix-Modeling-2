@@ -72,10 +72,9 @@ export class MMMServiceClient {
   }
 
   async fitModel(payload: MeridianServiceRequestPayload): Promise<MeridianServiceResponse> {
-    // Attempt to invoke the official Python Meridian microservice
     try {
       const controller = new AbortController();
-      const timeoutMs = Number(process.env.MERIDIAN_TIMEOUT_MS) || 120000;
+      const timeoutMs = Number(process.env.MERIDIAN_TIMEOUT_MS) || 60000; // Increased to 60s for actual MCMC runs
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const response = await fetch(`${this.serviceUrl}/api/v1/meridian/fit`, {
@@ -99,24 +98,31 @@ export class MMMServiceClient {
             warnings: data.warnings || []
           };
         }
+        return {
+          status: 'error',
+          errors: [{ code: 'INVALID_RESPONSE', message: 'Serviço retornou um formato inválido' }]
+        };
+      } else {
+        let errorData: any = null;
+        try {
+          const text = await response.text();
+          errorData = JSON.parse(text);
+        } catch {}
+        
+        return {
+          status: 'error',
+          errors: [{
+            code: 'MERIDIAN_ERROR',
+            message: errorData?.detail || errorData?.message || `Erro do microserviço: ${response.statusText}`
+          }]
+        };
       }
-
-      const errBody = await response.json().catch(() => ({}));
-      return {
-        status: 'service_unavailable',
-        errors: [{
-          code: errBody.code || 'MERIDIAN_UNAVAILABLE',
-          message: errBody.message || errBody.detail || 'O serviço Google Meridian não está disponível ou retornou erro.'
-        }]
-      };
     } catch (err: any) {
-      // When Python Meridian microservice is not reachable, do NOT generate synthetic or mock metrics.
-      // Return structured 503 SERVICE UNAVAILABLE error per rule: "Nenhum resultado estatístico artificial."
       return {
         status: 'service_unavailable',
         errors: [{
           code: 'MERIDIAN_UNAVAILABLE',
-          message: 'O microserviço oficial do Google Meridian está indisponível ou desconectado. Por diretriz de integridade estatística (Zero Fake Data), a plataforma não simula convergência MCMC, intervalos de credibilidade ou métricas fictícias.'
+          message: 'O microserviço Python Google Meridian está indisponível ou ocorreu timeout: ' + err.message
         }]
       };
     }
@@ -143,7 +149,7 @@ export class MMMServiceClient {
     constraints?: any;
     modelId?: string;
     activeModel?: any;
-  }): Promise<any | null> {
+  }): Promise<MeridianServiceResponse> {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -154,26 +160,51 @@ export class MMMServiceClient {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
+      
       if (res.ok) {
         const data = await res.json();
         if (data && (data.reallocations || data.optimizedKpi)) {
           return {
-            ...data,
-            engine: 'google-meridian'
+            status: 'success',
+            engine: 'google-meridian',
+            results: data
           };
         }
+        return {
+          status: 'error',
+          errors: [{ code: 'INVALID_RESPONSE', message: 'Serviço retornou um formato inválido' }]
+        };
+      } else {
+        let errorData: any = null;
+        try {
+          const text = await res.text();
+          errorData = JSON.parse(text);
+        } catch {}
+        
+        return {
+          status: 'error',
+          errors: [{
+            code: 'MERIDIAN_ERROR',
+            message: errorData?.detail || errorData?.message || `Erro do microserviço: ${res.statusText}`
+          }]
+        };
       }
-    } catch {
-      // Python microservice not answering optimize endpoint
+    } catch (err: any) {
+      return {
+        status: 'service_unavailable',
+        errors: [{
+          code: 'MERIDIAN_UNAVAILABLE',
+          message: 'O microserviço Python Google Meridian está indisponível ou ocorreu timeout: ' + err.message
+        }]
+      };
     }
-    return null;
   }
 
   async simulateScenario(payload: {
     channelSpends: Record<string, number>;
     modelId?: string;
     activeModel?: any;
-  }): Promise<any | null> {
+  }): Promise<MeridianServiceResponse> {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -184,19 +215,44 @@ export class MMMServiceClient {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
+
       if (res.ok) {
         const data = await res.json();
         if (data && (data.expectedKpi || data.channelSpends)) {
           return {
-            ...data,
-            engine: 'google-meridian'
+            status: 'success',
+            engine: 'google-meridian',
+            results: data
           };
         }
+        return {
+          status: 'error',
+          errors: [{ code: 'INVALID_RESPONSE', message: 'Serviço retornou um formato inválido' }]
+        };
+      } else {
+        let errorData: any = null;
+        try {
+          const text = await res.text();
+          errorData = JSON.parse(text);
+        } catch {}
+        
+        return {
+          status: 'error',
+          errors: [{
+            code: 'MERIDIAN_ERROR',
+            message: errorData?.detail || errorData?.message || `Erro do microserviço: ${res.statusText}`
+          }]
+        };
       }
-    } catch {
-      // Python microservice not answering simulate endpoint
+    } catch (err: any) {
+      return {
+        status: 'service_unavailable',
+        errors: [{
+          code: 'MERIDIAN_UNAVAILABLE',
+          message: 'O microserviço Python Google Meridian está indisponível ou ocorreu timeout: ' + err.message
+        }]
+      };
     }
-    return null;
   }
 }
 

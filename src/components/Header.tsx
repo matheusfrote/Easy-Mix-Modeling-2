@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Sparkles, Sun, Moon, HelpCircle, Menu, User as UserIcon, Settings, LogOut, Globe, Shield, Sparkle } from 'lucide-react';
+import { Play, Sparkles, Sun, Moon, HelpCircle, Menu, Settings, LogOut, Globe } from 'lucide-react';
 import { NavView } from './Sidebar';
 import { DateRangeFilter } from '../types/mmm';
 import { UploadResponse } from '../services/apiClient';
-import { useAuth } from '../context/AuthContext';
 
 interface HeaderProps {
   currentView: NavView;
@@ -23,14 +22,9 @@ interface HeaderProps {
   onNavigateToReadiness?: () => void;
   onResetDateRange?: () => void;
   onNavigateToSettings?: () => void;
-  onNavigateToLanding?: () => void;
 }
 
-const VIEW_TITLES: Record<NavView, { title: string; subtitle: string }> = {
-  landing: {
-    title: 'Easy Mix Modeling — Apresentação Institucional',
-    subtitle: 'Marketing Mix Modeling guiado pelo Google Meridian e inteligência artificial.'
-  },
+const VIEW_TITLES: Record<Exclude<NavView, 'landing'> | string, { title: string; subtitle: string }> = {
   dashboard: {
     title: 'Resumo do seu Marketing & Retornos',
     subtitle: 'Descubra quais canais mais contribuíram para suas vendas e onde estão as maiores oportunidades.'
@@ -81,7 +75,7 @@ const VIEW_TITLES: Record<NavView, { title: string; subtitle: string }> = {
   },
   settings: {
     title: 'Configurações',
-    subtitle: 'Gerencie seu perfil, conta, faturamento e preferências.'
+    subtitle: 'Gerencie suas preferências.'
   }
 };
 
@@ -102,13 +96,11 @@ export const Header: React.FC<HeaderProps> = ({
   currentDataset,
   onNavigateToReadiness,
   onResetDateRange,
-  onNavigateToSettings,
-  onNavigateToLanding
+  onNavigateToSettings
 }) => {
   const currentInfo = VIEW_TITLES[currentView] || { title: 'Marketing Mix Modeling', subtitle: '' };
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const { user, logout } = useAuth();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -119,28 +111,6 @@ export const Header: React.FC<HeaderProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const handleLogout = () => {
-    setIsUserMenuOpen(false);
-    logout();
-    if (onNavigateToLanding) {
-      onNavigateToLanding();
-    }
-  };
-
-  const getPlanBadge = (plan?: string) => {
-    switch (plan) {
-      case 'enterprise':
-        return { label: 'Enterprise', bg: 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-300' };
-      case 'starter':
-        return { label: 'Starter', bg: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300' };
-      case 'pro':
-      default:
-        return { label: 'Pro (Meridian)', bg: 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-300' };
-    }
-  };
-
-  const planInfo = getPlanBadge(user?.plan);
 
   return (
     <header className="h-14 sm:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 md:px-6 flex items-center justify-between shrink-0 transition-colors z-10 gap-2 min-w-0">
@@ -227,24 +197,15 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
             className="flex items-center gap-2 p-1 pl-1.5 pr-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Menu do Usuário"
+            aria-label="Menu"
             aria-expanded={isUserMenuOpen}
             aria-haspopup="true"
           >
-            {user?.avatar ? (
-              <img
-                src={user.avatar}
-                alt={user.name}
-                referrerPolicy="no-referrer"
-                className="w-6 h-6 rounded-full object-cover"
-              />
-            ) : (
-              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-[10px] font-bold text-white uppercase">
-                {user?.name ? user.name.slice(0, 2) : 'EM'}
-              </div>
-            )}
+            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-[10px] font-bold text-white uppercase">
+              V
+            </div>
             <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 hidden sm:inline max-w-[100px] truncate">
-              {user?.name || 'Visitante'}
+              Visitante
             </span>
           </button>
 
@@ -253,37 +214,17 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 space-y-1">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                    {user?.name || 'Visitante'}
+                    Sessão Anônima
                   </p>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${planInfo.bg}`}>
-                    {planInfo.label}
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300">
+                    Visitante
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                  {user?.email || 'demo@easymixmodeling.com'}
+                  Dados salvos apenas no seu navegador.
                 </p>
-                {user?.company && (
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
-                    {user.company}
-                  </p>
-                )}
               </div>
               <div className="p-1.5 space-y-0.5">
-                {onNavigateToLanding && (
-                  <button
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      onNavigateToLanding();
-                    }}
-                    className="w-full text-left px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition flex items-center justify-between group"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-blue-500" />
-                      <span>Ver Landing Page</span>
-                    </div>
-                    <span className="text-[10px] text-slate-400 group-hover:text-blue-500">&rarr;</span>
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     setIsUserMenuOpen(false);
@@ -292,14 +233,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="w-full text-left px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition flex items-center gap-2"
                 >
                   <Settings className="w-4 h-4 text-slate-400" />
-                  <span>Configurações & Faturamento</span>
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="w-full text-left px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition flex items-center gap-2 border-t border-slate-100 dark:border-slate-800/60 mt-1 pt-2"
-                >
-                  <LogOut className="w-4 h-4 text-red-500 dark:text-red-400" />
-                  <span>Sair da Conta</span>
+                  <span>Configurações</span>
                 </button>
               </div>
             </div>
