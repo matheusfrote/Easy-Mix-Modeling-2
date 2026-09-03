@@ -137,6 +137,67 @@ export class MMMServiceClient {
       message: 'Serviço Python Meridian offline. Inicie o container mmm-service para diagnósticos reais.'
     };
   }
+
+  async optimizeBudget(payload: {
+    targetTotalBudget: number;
+    constraints?: any;
+    modelId?: string;
+    activeModel?: any;
+  }): Promise<any | null> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(`${this.serviceUrl}/api/v1/meridian/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && (data.reallocations || data.optimizedKpi)) {
+          return {
+            ...data,
+            engine: 'google-meridian'
+          };
+        }
+      }
+    } catch {
+      // Python microservice not answering optimize endpoint
+    }
+    return null;
+  }
+
+  async simulateScenario(payload: {
+    channelSpends: Record<string, number>;
+    modelId?: string;
+    activeModel?: any;
+  }): Promise<any | null> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(`${this.serviceUrl}/api/v1/meridian/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && (data.expectedKpi || data.channelSpends)) {
+          return {
+            ...data,
+            engine: 'google-meridian'
+          };
+        }
+      }
+    } catch {
+      // Python microservice not answering simulate endpoint
+    }
+    return null;
+  }
 }
 
 export const mmmServiceClient = new MMMServiceClient();

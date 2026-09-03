@@ -516,13 +516,26 @@ export async function handleApiRequest(
       }
 
       const budget = Number(targetTotalBudget) || workspace.activeModel.totalSpend;
-      const optResult = optimizeBudgetMathematical(workspace.activeModel, budget, constraints);
+
+      // Try official Meridian microservice optimizer first
+      const pyOptResult = await mmmServiceClient.optimizeBudget({
+        targetTotalBudget: budget,
+        constraints,
+        modelId: workspace.activeModel.modelId,
+        activeModel: workspace.activeModel
+      });
+
+      const optResult = pyOptResult || {
+        ...optimizeBudgetMathematical(workspace.activeModel, budget, constraints),
+        engine: 'analytical-hill',
+        methodology: 'Equimarginalidade Gulosa baseada nas Curvas Hill do modelo ajustado'
+      };
 
       auditLogger.log('BUDGET_OPTIMIZED', {
         sessionId: session?.sessionId,
         userId: session?.userId,
         ip: clientIp,
-        details: { targetTotalBudget: budget }
+        details: { targetTotalBudget: budget, engine: optResult.engine }
       });
 
       return {
@@ -538,12 +551,24 @@ export async function handleApiRequest(
         return { status: 400, data: { error: 'Execute o modelo Meridian antes de simular cenários.' } };
       }
 
-      const sim = simulateScenarioMathematical(workspace.activeModel, channelSpends || {});
+      // Try official Meridian microservice simulation first
+      const pySim = await mmmServiceClient.simulateScenario({
+        channelSpends: channelSpends || {},
+        modelId: workspace.activeModel.modelId,
+        activeModel: workspace.activeModel
+      });
+
+      const sim = pySim || {
+        ...simulateScenarioMathematical(workspace.activeModel, channelSpends || {}),
+        engine: 'analytical-hill',
+        methodology: 'Projeção Hill com Intervalos de Credibilidade Posteriores'
+      };
 
       auditLogger.log('SCENARIO_SIMULATED', {
         sessionId: session?.sessionId,
         userId: session?.userId,
-        ip: clientIp
+        ip: clientIp,
+        details: { engine: sim.engine }
       });
 
       return {

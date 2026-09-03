@@ -12,7 +12,6 @@ import { apiClient, UploadResponse } from './services/apiClient';
 import { ColumnMapping, MeridianModelConfig, MeridianModelResults, DateRangeFilter } from './types/mmm';
 import { useIsMobile, getResponsiveOverflowClass } from './utils/responsive';
 import { updatePageSeo, getNavViewFromHash } from './services/seoManager';
-import { useAuth } from './context/AuthContext';
 import localforage from 'localforage';
 
 /**
@@ -68,42 +67,6 @@ const ViewLoadingFallback = () => (
     </div>
   </div>
 );
-
-const ProtectedRouter = ({ 
-  children, 
-  currentView, 
-  onRedirectToLanding 
-}: { 
-  children: React.ReactNode, 
-  currentView: NavView, 
-  onRedirectToLanding: () => void 
-}) => {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated && currentView !== 'landing') {
-      onRedirectToLanding();
-    }
-  }, [isAuthenticated, isLoading, currentView, onRedirectToLanding]);
-
-  if (isLoading) {
-    return (
-      <div className="flex w-full min-h-[100dvh] h-[100dvh] bg-slate-100 dark:bg-slate-950 items-center justify-center">
-        <ViewLoadingFallback />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated && currentView !== 'landing') {
-    return (
-      <div className="flex w-full min-h-[100dvh] h-[100dvh] bg-slate-100 dark:bg-slate-950 items-center justify-center">
-        <ViewLoadingFallback />
-      </div>
-    );
-  }
-
-  return <>{children}</>;
-};
 
 export default function App() {
   const [isHydrated, setIsHydrated] = useState(false);
@@ -398,7 +361,6 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <ProtectedRouter currentView={currentView} onRedirectToLanding={() => setCurrentView('landing')}>
       <div className="flex w-full min-h-[100dvh] h-[100dvh] overflow-hidden bg-slate-100 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 antialiased transition-colors duration-200">
         {/* Toast Notification */}
         {statusNotification && (
@@ -583,7 +545,6 @@ export default function App() {
           )}
         </Suspense>
       </div>
-    </ProtectedRouter>
     </ErrorBoundary>
   );
 }

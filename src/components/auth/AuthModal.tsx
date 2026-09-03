@@ -59,7 +59,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Acesso seguro via Google Workspace
+                    Acesso direto ao Workspace
                   </p>
                 </div>
               </div>
@@ -77,21 +77,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="p-6">
             <div className="mb-2">
               <GoogleLoginButton
-                text="signin_with"
+                text="continue_with"
                 onSuccess={handleGoogleSuccess}
               />
             </div>
             <p className="text-center text-xs text-slate-500 dark:text-slate-400 mt-4">
-              Ao entrar, você concorda com nossos Termos de Serviço e Política de Privacidade.
+              Nenhuma conta ou login é obrigatório. Explore todos os recursos de modelagem livremente.
             </p>
           </div>
 
           <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
             <div className="flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-emerald-500" />
-              <span>Autenticação OAuth Oficial Google</span>
+              <span>Modo Aberto • Sem necessidade de cadastro</span>
             </div>
-            <span className="font-mono text-[10px] text-slate-400">Autenticação Segura</span>
+            <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Liberado</span>
           </div>
         </motion.div>
       </div>

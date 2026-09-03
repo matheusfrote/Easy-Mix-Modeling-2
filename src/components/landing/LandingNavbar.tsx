@@ -198,21 +198,21 @@ export const LandingNavbar: React.FC<LandingNavbarProps> = ({
                   type="button"
                   onClick={() => {
                     setMobileMenuOpen(false);
-                    onOpenLogin();
+                    onEnterApp();
                   }}
                   className="w-full py-2.5 px-4 text-center font-medium text-sm text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 rounded-xl"
                 >
-                  Entrar na Conta
+                  Acessar Plataforma
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     setMobileMenuOpen(false);
-                    onOpenRegister();
+                    onEnterApp();
                   }}
                   className="w-full py-2.5 px-4 text-center font-semibold text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md"
                 >
-                  Criar Conta Gratuita
+                  Entrar sem Login
                 </button>
               </>
             ) : (

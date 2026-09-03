@@ -3,7 +3,6 @@ import {
   FileSpreadsheet,
   Link,
   Layers,
-  Database,
   Sparkles,
   ArrowRight,
   Calendar,
@@ -14,7 +13,8 @@ import {
   RefreshCw,
   Plus,
   Sliders,
-  TrendingUp
+  TrendingUp,
+  Table
 } from 'lucide-react';
 import localforage from 'localforage';
 import { UploadResponse, apiClient } from '../services/apiClient';
@@ -45,7 +45,7 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
   onNavigateToReadiness,
   onOpenFullTour
 }) => {
-  const [ingestionMode, setIngestionMode] = useState<'api' | 'manual'>('api');
+  const [ingestionMode, setIngestionMode] = useState<'sheets' | 'upload'>('sheets');
   const [selectedSourceForModal, setSelectedSourceForModal] = useState<IntegrationSource | null>(null);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [connectedSources, setConnectedSources] = useState<ConnectedSourceInstance[]>([]);
@@ -111,8 +111,7 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
   };
 
   const handleUploadCsvForSource = (source: IntegrationSource) => {
-    setIngestionMode('manual');
-    // Scroll smoothly to the upload zone
+    setIngestionMode('upload');
     setTimeout(() => {
       const el = document.getElementById('csv-file-uploader-container');
       if (el) {
@@ -121,98 +120,94 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
     }, 100);
   };
 
-  const existingInstanceForSelected = selectedSourceForModal
-    ? connectedSources.find(s => s.sourceId === selectedSourceForModal.id) || null
-    : null;
-
   return (
     <div id="data-upload-view" className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 max-w-7xl w-full mx-auto min-w-0">
       {/* Semantic Heading for Search Engines and Accessibility */}
       <h1 className="sr-only">
-        Data Hub: Ingestão de Séries Temporais, Upload de Planilhas e Conexão de Fontes de Dados de Marketing
+        Data Hub: Ingestão de Séries Temporais e Conexão de Dados via Planilhas (Google Sheets, Excel e CSV)
       </h1>
 
       {/* Contextual Step Guidance Banner */}
       <StepGuidanceBanner
         id="data-hub-guidance"
         stepNumber="1"
-        title="Etapa 1: Data Hub & Envio de Dados"
-        subtitle="Importe suas séries temporais de marketing via arquivos CSV/Excel ou conecte automaticamente suas contas de mídia e vendas."
+        title="Etapa 1: Data Hub & Conexão via Planilhas"
+        subtitle="Importe suas séries temporais de marketing conectando planilhas do Google Sheets ou enviando arquivos Excel/CSV."
         onOpenFullTour={onOpenFullTour}
         tips={[
-          { icon: '📁', text: 'Arquivos CSV & XLSX: Envio de planilhas com detecção automática de datas e investimentos.' },
-          { icon: '🔗', text: 'Conectores de Fontes: Integração com Google Ads, Meta, GA4, HubSpot, Shopify e Google Sheets.' },
-          { icon: '🎯', text: 'Model Readiness Score: Diagnóstico estatístico em tempo real para verificar se os dados estão prontos para o Meridian.' }
+          { icon: '📊', text: 'Google Sheets: Conecte via link de visualização da planilha com atualização em tempo real.' },
+          { icon: '📁', text: 'Arquivos Excel & CSV: Envio local de planilhas com detecção automática de datas e canais de mídia.' },
+          { icon: '🎯', text: 'Model Readiness Score: Diagnóstico estatístico em tempo real para verificar se as séries estão aptas ao Meridian.' }
         ]}
-        proTip="Dica rápida: Se quiser testar o sistema imediatamente sem conectar suas contas agora, use o botão 'Explorar com Dados de Demonstração'."
+        proTip="Dica rápida: Se quiser testar o sistema imediatamente sem enviar sua própria planilha agora, use o botão 'Explorar com Dados de Demonstração'."
       />
 
-      {/* Dual Mode Ingestion Selector */}
+      {/* Spreadsheet Ingestion Selector */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* API Mode Button */}
+        {/* Google Sheets / Cloud Mode Button */}
         <button
-          onClick={() => setIngestionMode('api')}
+          onClick={() => setIngestionMode('sheets')}
           className={`relative flex flex-col items-start p-5 sm:p-6 rounded-2xl border-2 transition-all duration-200 text-left ${
-            ingestionMode === 'api'
-              ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-900/20 shadow-md shadow-blue-500/10'
-              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+            ingestionMode === 'sheets'
+              ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-md shadow-emerald-500/10'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-slate-50 dark:hover:bg-slate-800'
           }`}
         >
-          {ingestionMode === 'api' && (
-            <div className="absolute top-4 right-4 text-blue-600 dark:text-blue-400">
+          {ingestionMode === 'sheets' && (
+            <div className="absolute top-4 right-4 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="w-5 h-5" />
             </div>
           )}
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${
-            ingestionMode === 'api' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+            ingestionMode === 'sheets' ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
           }`}>
             <Link className="w-5 h-5" />
           </div>
           <div className="flex items-center gap-2 mb-1.5">
-            <h3 className={`text-base font-bold ${ingestionMode === 'api' ? 'text-blue-900 dark:text-blue-100' : 'text-slate-900 dark:text-white'}`}>
-              Conexão Direta via API
+            <h3 className={`text-base font-bold ${ingestionMode === 'sheets' ? 'text-emerald-900 dark:text-emerald-100' : 'text-slate-900 dark:text-white'}`}>
+              Google Sheets & Catálogo de Planilhas
             </h3>
-            <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-              Recomendado
+            <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+              Colaborativo
             </span>
           </div>
-          <p className={`text-xs leading-relaxed ${ingestionMode === 'api' ? 'text-blue-800/80 dark:text-blue-200/70' : 'text-slate-500 dark:text-slate-400'}`}>
-            Conecte Google Ads e Meta Ads com suas credenciais para extração e padronização de séries temporais de investimento.
+          <p className={`text-xs leading-relaxed ${ingestionMode === 'sheets' ? 'text-emerald-800/80 dark:text-emerald-200/70' : 'text-slate-500 dark:text-slate-400'}`}>
+            Conecte sua planilha online do Google Sheets pelo link compartilhado ou use templates estruturados recomendados pelo Google Meridian.
           </p>
         </button>
 
-        {/* Manual Mode Button */}
+        {/* Local File Upload Button */}
         <button
-          onClick={() => setIngestionMode('manual')}
+          onClick={() => setIngestionMode('upload')}
           className={`relative flex flex-col items-start p-5 sm:p-6 rounded-2xl border-2 transition-all duration-200 text-left ${
-            ingestionMode === 'manual'
-              ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-900/20 shadow-md shadow-blue-500/10'
-              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+            ingestionMode === 'upload'
+              ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-md shadow-emerald-500/10'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-slate-50 dark:hover:bg-slate-800'
           }`}
         >
-          {ingestionMode === 'manual' && (
-            <div className="absolute top-4 right-4 text-blue-600 dark:text-blue-400">
+          {ingestionMode === 'upload' && (
+            <div className="absolute top-4 right-4 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="w-5 h-5" />
             </div>
           )}
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${
-            ingestionMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+            ingestionMode === 'upload' ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
           }`}>
             <FileSpreadsheet className="w-5 h-5" />
           </div>
-          <h3 className={`text-base font-bold mb-1.5 ${ingestionMode === 'manual' ? 'text-blue-900 dark:text-blue-100' : 'text-slate-900 dark:text-white'}`}>
-            Upload Manual de Planilha
+          <h3 className={`text-base font-bold mb-1.5 ${ingestionMode === 'upload' ? 'text-emerald-900 dark:text-emerald-100' : 'text-slate-900 dark:text-white'}`}>
+            Upload de Planilha Local (Excel & CSV)
           </h3>
-          <p className={`text-xs leading-relaxed ${ingestionMode === 'manual' ? 'text-blue-800/80 dark:text-blue-200/70' : 'text-slate-500 dark:text-slate-400'}`}>
-            Faça upload do seu próprio arquivo CSV ou XLSX se preferir tratar os dados internamente antes da modelagem.
+          <p className={`text-xs leading-relaxed ${ingestionMode === 'upload' ? 'text-emerald-800/80 dark:text-emerald-200/70' : 'text-slate-500 dark:text-slate-400'}`}>
+            Faça upload do seu próprio arquivo Excel (.xlsx, .xls) ou CSV (.csv) com tratamento e validação local segura no navegador.
           </p>
         </button>
       </div>
       
-      {/* API Ingestion Mode Content */}
-      {ingestionMode === 'api' && (
+      {/* Sheets / Connectors Mode Content */}
+      {ingestionMode === 'sheets' && (
         <div className="space-y-6 animate-fade-in">
-                    <Connectors 
+          <Connectors 
             connectedSources={connectedSources}
             onConnectedSuccess={handleConnectedSuccess}
             onDisconnect={handleDisconnectSource}
@@ -220,25 +215,25 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
         </div>
       )}
 
-      {/* Manual Upload Mode Content */}
-      {ingestionMode === 'manual' && (
+      {/* Local Upload Mode Content */}
+      {ingestionMode === 'upload' && (
         <div className="space-y-6 animate-fade-in" id="csv-file-uploader-container">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-6 transition-colors">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-4">
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center">
-                  Selecione ou Arraste seu Arquivo CSV / Excel
+                  Selecione ou Arraste seu Arquivo de Planilha (CSV / Excel)
                   <InfoTooltip
-                    title="Formato Recomendado"
+                    title="Formato de Planilha Recomendado"
                     content="Para o modelo separar com precisão as vendas naturais (orgânicas) do impacto real de cada canal de anúncio, recomendamos um histórico de 52 a 104 semanas (1 a 2 anos)."
                   />
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Envie dados reais da sua empresa para processar adstock, saturação e retorno por canal com o Google Meridian.
+                  Envie dados em formato tabular para processar adstock, saturação e retorno por canal com o Google Meridian.
                 </p>
               </div>
-              <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 rounded-full self-start sm:self-auto border border-blue-200 dark:border-blue-800">
-                CSV ou Planilha Excel (.xlsx, .xls)
+              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-full self-start sm:self-auto border border-emerald-200 dark:border-emerald-800">
+                Planilha Excel (.xlsx, .xls) ou CSV (.csv)
               </span>
             </div>
 
@@ -253,79 +248,20 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
       {/* Real-time Model Readiness & Data Quality Feedback if dataset is active */}
       {currentDataset && (
         <div className="space-y-6 pt-2">
-          {/* Instant Data Quality & Readiness Score Card */}
           <DataQualityReadinessWidget
             readiness={currentDataset.readiness}
             validation={currentDataset.validation}
             mappings={currentDataset.mappings}
-            rowCount={currentDataset.rowCount}
-            filename={currentDataset.filename}
             onNavigateToMapping={onNavigateToMapping}
-            onNavigateToReadiness={onNavigateToReadiness || onNavigateToMapping}
+            onNavigateToReadiness={onNavigateToReadiness}
           />
 
-          {/* Smart Mapping Overview */}
           <SmartMappingPreview
-            mappings={currentDataset.mappings}
-            onNavigateToFullMapping={onNavigateToMapping}
+            dataset={currentDataset}
+            onNavigateToMapping={onNavigateToMapping}
           />
-
-          {/* Dataset Table Preview */}
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4 transition-colors">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div>
-                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                  <Database className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Prévia das primeiras linhas da base ativa:</span>
-                </h4>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Visualizando 5 de {currentDataset.rowCount} observações semanais
-                </p>
-              </div>
-
-              <button
-                onClick={onNavigateToMapping}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition shadow-xs self-start sm:self-center"
-              >
-                <span>Avançar para Mapeamento</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            <ScrollableTableWrapper
-              minWidth="600px"
-              hintText="Arraste para ver todas as colunas do dataset"
-              className="border border-slate-200 dark:border-slate-800 rounded-lg max-h-72 overflow-y-auto"
-            >
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-100/90 dark:bg-slate-800 sticky top-0 text-slate-700 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    {currentDataset.columns.map(col => (
-                      <th key={col} className="p-2.5 whitespace-nowrap">
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {currentDataset.previewRows.slice(0, 5).map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
-                      {currentDataset.columns.map(col => (
-                        <td key={col} className="p-2.5 whitespace-nowrap text-slate-600 dark:text-slate-300 font-mono text-[11px]">
-                          {typeof row[col] === 'number'
-                            ? Number(row[col]).toLocaleString('pt-BR')
-                            : String(row[col] ?? '-')}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ScrollableTableWrapper>
-          </div>
         </div>
       )}
-
-      </div>
+    </div>
   );
 };

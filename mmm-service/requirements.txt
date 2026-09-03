@@ -1,0 +1,23 @@
+# ==============================================================================
+# Google Meridian Microservice (mmm-service) - Python Dependencies
+# Compatible with official Google Meridian MMM repository requirements
+# Python version target: >=3.10, <=3.12
+# ==============================================================================
+
+# Web Framework & API Server
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+
+# Official Google Meridian Marketing Mix Modeling Framework
+google-meridian>=1.0.0
+
+# Core Scientific & Data Processing (Aligned with Meridian pyproject.toml)
+numpy>=2.0.2,<2.4.0
+pandas>=2.2.2,<3.0.0
+
+# High-Performance Accelerated Computing (JAX / XLA Backend for GPU/TPU)
+jax>=0.4.30,<=0.7.2
+jaxlib>=0.4.30,<=0.7.2
+
+# Bayesian Inference Diagnostics & Post-Processing
+arviz>=0.17.0,<0.20.0

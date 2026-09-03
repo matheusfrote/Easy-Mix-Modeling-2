@@ -26,17 +26,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
 
   const handleOpenLogin = () => {
-    setAuthMode('login');
-    setIsAuthModalOpen(true);
+    onEnterWorkspace();
   };
 
   const handleOpenRegister = () => {
-    setAuthMode('register');
-    setIsAuthModalOpen(true);
+    onEnterWorkspace();
   };
 
   const handleExploreDemo = () => {
-    handleOpenLogin();
+    onEnterWorkspace();
   };
 
   return (

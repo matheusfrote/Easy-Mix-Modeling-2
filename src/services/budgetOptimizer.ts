@@ -172,6 +172,8 @@ export function simulateScenarioMathematical(
   
   let totalSimulatedSpend = 0;
   let totalSimulatedMediaKpi = 0;
+  let totalSimulatedMediaKpiLower = 0;
+  let totalSimulatedMediaKpiUpper = 0;
   let totalCurrentMediaKpi = 0;
 
   const simulatedChannels = model.channels.map(c => {
@@ -181,9 +183,32 @@ export function simulateScenarioMathematical(
     
     const simSpend = channelSpends[c.channelName] ?? c.spend;
     const simKpi = evaluateHillCurve(simSpend, k, s, maxInc);
+
+    // Propagate Bayesian Credible Intervals from posterior distributions
+    let channelKpiLower = simKpi;
+    let channelKpiUpper = simKpi;
+
+    if (c.roiInterval && typeof c.roiInterval.ci025 === 'number' && typeof c.roiInterval.ci975 === 'number' && c.roi > 0) {
+      const lowerRatio = Math.max(0, c.roiInterval.ci025 / c.roi);
+      const upperRatio = Math.max(lowerRatio, c.roiInterval.ci975 / c.roi);
+      channelKpiLower = simKpi * lowerRatio;
+      channelKpiUpper = simKpi * upperRatio;
+    } else if (model.responseCurves?.[c.channelName]?.points?.length) {
+      // Find closest curve points
+      const points = model.responseCurves[c.channelName].points;
+      const closest = points.reduce((prev, curr) => 
+        Math.abs(curr.spend - simSpend) < Math.abs(prev.spend - simSpend) ? curr : prev
+      , points[0]);
+      if (closest && closest.incrementalKpi > 0) {
+        channelKpiLower = simKpi * (closest.incrementalKpiLower / closest.incrementalKpi);
+        channelKpiUpper = simKpi * (closest.incrementalKpiUpper / closest.incrementalKpi);
+      }
+    }
     
     totalSimulatedSpend += simSpend;
     totalSimulatedMediaKpi += simKpi;
+    totalSimulatedMediaKpiLower += channelKpiLower;
+    totalSimulatedMediaKpiUpper += channelKpiUpper;
     totalCurrentMediaKpi += c.incrementalKpi;
 
     return {
@@ -200,19 +225,21 @@ export function simulateScenarioMathematical(
   const baseKpi = model.totalKpi - totalCurrentMediaKpi;
   const currentOverallKpi = baseKpi + totalCurrentMediaKpi;
   const simulatedOverallKpi = baseKpi + totalSimulatedMediaKpi;
+  const expectedLower = baseKpi + totalSimulatedMediaKpiLower;
+  const expectedUpper = baseKpi + totalSimulatedMediaKpiUpper;
 
   return {
     id: `sim_${Date.now()}`,
-    name: 'Simulação Analítica',
-    description: 'Projeção baseada na Função de Resposta Hill do modelo.',
+    name: 'Simulação Analítica Baseada em Meridian',
+    description: 'Projeção derivada da Função de Resposta Hill com propagação de incerteza dos intervalos de credibilidade posteriores.',
     channelSpends: simulatedChannels.reduce((acc, ch) => {
       acc[ch.channelName] = ch.simulatedSpend;
       return acc;
     }, {} as Record<string, number>),
     totalSpend: totalSimulatedSpend,
     expectedKpi: simulatedOverallKpi,
-    expectedKpiLower: simulatedOverallKpi * 0.95, // Rough 5% CI for analytical mock
-    expectedKpiUpper: simulatedOverallKpi * 1.05,
+    expectedKpiLower: Math.min(simulatedOverallKpi, expectedLower),
+    expectedKpiUpper: Math.max(simulatedOverallKpi, expectedUpper),
     incrementalKpi: simulatedOverallKpi - currentOverallKpi,
     blendedRoi: totalSimulatedSpend > 0 ? simulatedOverallKpi / totalSimulatedSpend : 0,
     marginalRoi: totalSimulatedSpend > 0 ? (simulatedOverallKpi - currentOverallKpi) / (totalSimulatedSpend - model.totalSpend || 1) : 0,
