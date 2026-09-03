@@ -99,7 +99,7 @@ export function buildChannelDecisions(
       entity: `${pair.sourceChannel} ➔ ${pair.targetChannel}`,
       category: 'REALLOCATION',
       decision: 'REALLOCATE',
-      score: 89,
+      score: 0,
       priority: 'HIGH',
       confidence: 'Alta',
       reasonCodes: ['REALLOCATION_OPPORTUNITY', 'HIGH_MARGINAL_ROI', 'HIGH_SATURATION'],
@@ -125,13 +125,13 @@ export function buildChannelDecisions(
           blendedRoi: benchmarks.blendedRoi
         },
         scoreBreakdown: {
-          marginalRoiComponent: 30,
-          opportunityComponent: 20,
-          contributionComponent: 15,
-          roiComponent: 14,
-          confidenceComponent: 10,
+          marginalRoiComponent: 0,
+          opportunityComponent: 0,
+          contributionComponent: 0,
+          roiComponent: 0,
+          confidenceComponent: 0,
           trendComponent: 0,
-          totalScore: 89
+          totalScore: 0
         },
         confidenceAssessment: 'Forte oportunidade de otimização de portfólio baseada na disparidade de curvas de resposta.'
       }

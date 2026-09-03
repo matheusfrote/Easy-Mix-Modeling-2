@@ -63,17 +63,17 @@ def process_posterior_and_diagnostics(
         az_summary = az.summary(inference_data)
         rhat_col = "r_hat" if "r_hat" in az_summary.columns else "rhat"
         rhat_series = az_summary[rhat_col].dropna() if rhat_col in az_summary.columns else pd.Series([1.0])
-        ess_bulk_series = az_summary["ess_bulk"].dropna() if "ess_bulk" in az_summary.columns else pd.Series([1000.0])
-        ess_tail_series = az_summary["ess_tail"].dropna() if "ess_tail" in az_summary.columns else pd.Series([800.0])
+        ess_bulk_series = az_summary["ess_bulk"].dropna() if "ess_bulk" in az_summary.columns else pd.Series()
+        ess_tail_series = az_summary["ess_tail"].dropna() if "ess_tail" in az_summary.columns else pd.Series()
 
-        max_rhat = float(rhat_series.max()) if not rhat_series.empty else 1.01
-        min_ess_bulk = float(ess_bulk_series.min()) if not ess_bulk_series.empty else 1000.0
-        min_ess_tail = float(ess_tail_series.min()) if not ess_tail_series.empty else 800.0
+        max_rhat = float(rhat_series.max()) if not rhat_series.empty else "N/A"
+        min_ess_bulk = float(ess_bulk_series.min()) if not ess_bulk_series.empty else "N/A"
+        min_ess_tail = float(ess_tail_series.min()) if not ess_tail_series.empty else "N/A"
     except Exception as e:
         logger.warning(f"Erro ao calcular resumo ArviZ: {e}")
-        max_rhat = 1.01
-        min_ess_bulk = 1000.0
-        min_ess_tail = 800.0
+        max_rhat = "N/A"
+        min_ess_bulk = "N/A"
+        min_ess_tail = "N/A"
 
     # 2. LOO and WAIC
     try:
@@ -107,26 +107,42 @@ def process_posterior_and_diagnostics(
     }
 
     warnings = []
-    if max_rhat >= 1.05:
+    if max_rhat != "N/A" and max_rhat >= 1.05:
         warnings.append(f"R-hat máximo ({max_rhat:.3f}) excedeu 1.05. As cadeias MCMC podem não ter convergido completamente.")
-    if min_ess_bulk < 400:
+    if min_ess_bulk != "N/A" and min_ess_bulk < 400:
         warnings.append(f"Bulk ESS ({min_ess_bulk:.0f}) inferior a 400. Recomenda-se aumentar os draws MCMC.")
     if divergences_count > 0:
         warnings.append(f"Detectadas {divergences_count} transições divergentes durante a amostragem NUTS.")
+        
+    r_squared = "N/A"
+    bayesian_r2 = "N/A"
+    mape = "N/A"
+    rmse = "N/A"
+    
+    # Attempt to extract actual fit metrics if meridian_model provides them
+    try:
+        if hasattr(meridian_model, "r_squared"):
+            r_squared = float(meridian_model.r_squared)
+        if hasattr(meridian_model, "mape"):
+            mape = float(meridian_model.mape)
+        if hasattr(meridian_model, "rmse"):
+            rmse = float(meridian_model.rmse)
+    except Exception:
+        pass
 
     return {
-        "rSquared": 0.92,
-        "bayesianR2": 0.89,
-        "mape": 6.5,
-        "rmse": 120.0,
-        "gelmanRubinRhat": round(max_rhat, 3),
-        "effectiveSampleSize": int(min_ess_bulk),
-        "bulkEss": int(min_ess_bulk),
-        "tailEss": int(min_ess_tail),
+        "rSquared": r_squared,
+        "bayesianR2": bayesian_r2,
+        "mape": mape,
+        "rmse": rmse,
+        "gelmanRubinRhat": round(max_rhat, 3) if max_rhat != "N/A" else "N/A",
+        "effectiveSampleSize": int(min_ess_bulk) if min_ess_bulk != "N/A" else "N/A",
+        "bulkEss": int(min_ess_bulk) if min_ess_bulk != "N/A" else "N/A",
+        "tailEss": int(min_ess_tail) if min_ess_tail != "N/A" else "N/A",
         "looCv": loo_val,
         "waic": waic_val,
         "divergencesCount": divergences_count,
-        "isConverged": max_rhat < 1.05 and min_ess_bulk >= 400 and divergences_count == 0,
+        "isConverged": max_rhat != "N/A" and max_rhat < 1.05 and min_ess_bulk != "N/A" and min_ess_bulk >= 400 and divergences_count == 0,
         "warnings": warnings,
         "posteriorMetrics": posterior_metrics
     }

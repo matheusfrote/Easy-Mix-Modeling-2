@@ -2,6 +2,7 @@ import { inferColumnMappings } from '../services/dataMapper';
 import { registry } from './connectors/ConnectorRegistry';
 import { calculateDataReadinessScore } from '../services/dataReadiness';
 import { validateDataset, sanitizeDataset, DataRow } from '../services/dataValidator';
+import { optimizeBudgetMathematical, simulateScenarioMathematical } from '../services/budgetOptimizer';
 import {
   generateAutomatedInsights,
   generateBudgetExplanation,
@@ -56,7 +57,6 @@ interface AppState {
     rows: DataRow[];
     columns: string[];
     mappings: ColumnMapping[];
-    isSynthetic: boolean;
   } | null;
   activeModel: MeridianModelResults | null;
   modelConfig: MeridianModelConfig | null;
@@ -130,8 +130,7 @@ export async function handleApiRequest(
       state.dataset = {
         rows: sanitizedRows,
         columns: cols,
-        mappings,
-        isSynthetic: false
+        mappings
       };
 
       return {
@@ -144,7 +143,6 @@ export async function handleApiRequest(
           mappings,
           validation: val,
           readiness,
-          isSynthetic: false,
           filename: filename || 'uploaded_data.csv'
         }
       };
@@ -338,14 +336,12 @@ export async function handleApiRequest(
         return { status: 400, data: { error: 'Execute o modelo Meridian antes de otimizar o orçamento.' } };
       }
 
-      // Delegate to Python backend for optimization (not yet fully implemented in python layer)
-      // For now, return a structured error
+      const budget = Number(targetTotalBudget) || state.activeModel.totalSpend;
+      const optResult = optimizeBudgetMathematical(state.activeModel, budget, constraints);
+
       return {
-        status: 501,
-        data: {
-          code: 'NOT_IMPLEMENTED',
-          message: 'Otimização de orçamento real pelo Meridian ainda não implementada no backend.'
-        }
+        status: 200,
+        data: optResult
       };
     }
 
@@ -356,12 +352,10 @@ export async function handleApiRequest(
         return { status: 400, data: { error: 'Execute o modelo Meridian antes de simular cenários.' } };
       }
 
+      const sim = simulateScenarioMathematical(state.activeModel, channelSpends || {});
       return {
-        status: 501,
-        data: {
-          code: 'NOT_IMPLEMENTED',
-          message: 'Simulação de cenário real pelo Meridian ainda não implementada no backend.'
-        }
+        status: 200,
+        data: sim
       };
     }
 
@@ -398,8 +392,10 @@ export async function handleApiRequest(
       if (!state.activeModel) {
         return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
       }
-      // Cannot generate full report without optimizeBudget result right now
-      return { status: 501, data: { error: 'Geração de relatório não suportada sem opt result.' } };
+      
+      const opt = optimizeBudgetMathematical(state.activeModel, state.activeModel.totalSpend * 1.15);
+      const report = await generateFullReport(state.activeModel, opt);
+      return { status: 200, data: { report } };
     }
 
     
@@ -442,8 +438,7 @@ export async function handleApiRequest(
              state.dataset = {
                rows: [],
                columns: [],
-               mappings: [],
-               isSynthetic: false
+               mappings: []
              };
           }
           // Normally we'd merge by date and channel. For now we append and sort.
@@ -470,8 +465,7 @@ export async function handleApiRequest(
             columns: state.dataset.columns,
             mappings: state.dataset.mappings,
             validation,
-            readiness,
-            isSynthetic: false
+            readiness
           };
 
         }
@@ -492,46 +486,55 @@ export async function handleApiRequest(
     if (path === '/api/auth/google' && method === 'POST') {
       const { credential } = body || {};
 
-      let email = 'usuario.google@empresa.com.br';
-      let name = 'Marketing Executive';
+      if (!credential) {
+         return { status: 401, data: { error: 'Token não fornecido' } };
+      }
+
+      let email = '';
+      let name = '';
       let picture = '';
-      let googleId = `g_${Date.now()}`;
-      let company = 'Digital Brand';
+      let googleId = '';
+      let company = '';
 
-      if (credential) {
-        try {
-          // Parse JWT payload safely on the server
-          const parts = credential.split('.');
-          if (parts.length >= 2) {
-            const base64Url = parts[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = Buffer.from(base64, 'base64').toString('utf8');
-            const payload = JSON.parse(jsonPayload);
+      try {
+        // Parse JWT payload safely on the server
+        const parts = credential.split('.');
+        if (parts.length >= 2) {
+          const base64Url = parts[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = Buffer.from(base64, 'base64').toString('utf8');
+          const payload = JSON.parse(jsonPayload);
 
-            // Verify Google token issuer if present
-            if (payload.iss && !payload.iss.includes('accounts.google.com')) {
-              return { status: 401, data: { error: 'Emissor de token inválido do Google' } };
-            }
-
-            // Verify expiration if present
-            if (payload.exp && payload.exp < Date.now() / 1000) {
-              return { status: 401, data: { error: 'Token do Google expirado' } };
-            }
-
-            if (payload.email) email = payload.email;
-            if (payload.name) name = payload.name;
-            if (payload.picture) picture = payload.picture;
-            if (payload.sub) googleId = payload.sub;
-            if (payload.hd) {
-              company = payload.hd.toUpperCase();
-            } else if (payload.email && payload.email.includes('@')) {
-              const domain = payload.email.split('@')[1];
-              company = domain.split('.')[0].toUpperCase();
-            }
+          // Verify Google token issuer if present
+          if (payload.iss && !payload.iss.includes('accounts.google.com')) {
+            return { status: 401, data: { error: 'Emissor de token inválido do Google' } };
           }
-        } catch (e: any) {
-          console.warn('Server token decode fallback:', e?.message);
+
+          // Verify expiration if present
+          if (payload.exp && payload.exp < Date.now() / 1000) {
+            return { status: 401, data: { error: 'Token do Google expirado' } };
+          }
+
+          if (payload.email) email = payload.email;
+          if (payload.name) name = payload.name;
+          if (payload.picture) picture = payload.picture;
+          if (payload.sub) googleId = payload.sub;
+          if (payload.hd) {
+            company = payload.hd.toUpperCase();
+          } else if (payload.email && payload.email.includes('@')) {
+            const domain = payload.email.split('@')[1];
+            company = domain.split('.')[0].toUpperCase();
+          }
+          
+          if (!email || !googleId) {
+             return { status: 401, data: { error: 'Token inválido: ausência de email ou ID' } };
+          }
+        } else {
+           return { status: 401, data: { error: 'Formato de token inválido' } };
         }
+      } catch (e: any) {
+        console.warn('Server token decode fallback:', e?.message);
+        return { status: 401, data: { error: 'Falha ao validar token' } };
       }
 
       // Return sanitized user object - NEVER expose raw tokens or client secrets

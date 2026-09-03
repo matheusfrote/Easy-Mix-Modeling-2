@@ -34,15 +34,14 @@ export const Connectors: React.FC<ConnectorsProps> = ({
       {connectedSources.length > 0 && (
         <ConnectedSourcesSection
           sources={connectedSources}
-          onManageSource={(id) => {
-            // Find full source definition
-            const source = connectedSources.find(s => s.id === id);
-            // This requires the full IntegrationSource object, which we might need to look up
-            // Let's just pass this down in a real app, for now omitted complex logic
-          }}
+          onManageSource={(source) => handleOpenConnectModal(source)}
+          onDisconnectSource={onDisconnect}
           onSyncAll={() => {}}
-          isSyncingAll={false}
-          onDisconnect={onDisconnect}
+          isSyncing={false}
+          onAddNewSource={() => {
+            const catalog = document.getElementById('integration-catalog-container');
+            catalog?.scrollIntoView({ behavior: 'smooth' });
+          }}
         />
       )}
 

@@ -6,7 +6,8 @@
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Sidebar, NavView } from './components/Sidebar';
 import { Header } from './components/Header';
-const DashboardView = lazy(() => import('./components/DashboardView').then(m => ({ default: m.DashboardView })));
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { LandingPage } from './components/landing/LandingPage';
 import { apiClient, UploadResponse } from './services/apiClient';
 import { ColumnMapping, MeridianModelConfig, MeridianModelResults, DateRangeFilter } from './types/mmm';
 import { useIsMobile, getResponsiveOverflowClass } from './utils/responsive';
@@ -14,21 +15,50 @@ import { updatePageSeo, getNavViewFromHash } from './services/seoManager';
 import { useAuth } from './context/AuthContext';
 import localforage from 'localforage';
 
-// Lazy load non-initial views to dramatically reduce initial bundle parse time
-const LandingPage = lazy(() => import('./components/landing/LandingPage').then(m => ({ default: m.LandingPage })));
-const DataUploadView = lazy(() => import('./components/DataUploadView').then(m => ({ default: m.DataUploadView })));
-const ColumnMappingView = lazy(() => import('./components/ColumnMappingView').then(m => ({ default: m.ColumnMappingView })));
-const DataReadinessView = lazy(() => import('./components/DataReadinessView').then(m => ({ default: m.DataReadinessView })));
-const ModelConfigView = lazy(() => import('./components/ModelConfigView').then(m => ({ default: m.ModelConfigView })));
-const ChannelPerformanceView = lazy(() => import('./components/ChannelPerformanceView').then(m => ({ default: m.ChannelPerformanceView })));
-const BudgetOptimizerView = lazy(() => import('./components/BudgetOptimizerView').then(m => ({ default: m.BudgetOptimizerView })));
-const WhatIfSimulatorView = lazy(() => import('./components/WhatIfSimulatorView').then(m => ({ default: m.WhatIfSimulatorView })));
-const InsightsView = lazy(() => import('./components/InsightsView').then(m => ({ default: m.InsightsView })));
-const ChannelLibraryView = lazy(() => import('./components/ChannelLibraryView').then(m => ({ default: m.ChannelLibraryView })));
-const MethodologyGuideView = lazy(() => import('./components/MethodologyGuideView').then(m => ({ default: m.MethodologyGuideView })));
-const ReportView = lazy(() => import('./components/ReportView').then(m => ({ default: m.ReportView })));
-const SettingsView = lazy(() => import('./components/SettingsView').then(m => ({ default: m.SettingsView })));
-const TourGuideModal = lazy(() => import('./components/TourGuideModal').then(m => ({ default: m.TourGuideModal })));
+/**
+ * Resilient lazy loader that retries dynamic chunk imports in case of transient network issues or app updates
+ */
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>,
+  retries = 3,
+  interval = 800
+): React.LazyExoticComponent<T> {
+  return lazy(() => {
+    return new Promise<{ default: T }>((resolve, reject) => {
+      const attempt = (remaining: number) => {
+        factory()
+          .then(resolve)
+          .catch((error) => {
+            console.warn(`Dynamic module import failed (${remaining} attempts left):`, error);
+            if (remaining <= 1) {
+              reject(error);
+              return;
+            }
+            setTimeout(() => {
+              attempt(remaining - 1);
+            }, interval);
+          });
+      };
+      attempt(retries);
+    });
+  });
+}
+
+// Lazy load non-initial workspace views with automatic retry
+const DashboardView = lazyWithRetry(() => import('./components/DashboardView').then(m => ({ default: m.DashboardView })));
+const DataUploadView = lazyWithRetry(() => import('./components/DataUploadView').then(m => ({ default: m.DataUploadView })));
+const ColumnMappingView = lazyWithRetry(() => import('./components/ColumnMappingView').then(m => ({ default: m.ColumnMappingView })));
+const DataReadinessView = lazyWithRetry(() => import('./components/DataReadinessView').then(m => ({ default: m.DataReadinessView })));
+const ModelConfigView = lazyWithRetry(() => import('./components/ModelConfigView').then(m => ({ default: m.ModelConfigView })));
+const ChannelPerformanceView = lazyWithRetry(() => import('./components/ChannelPerformanceView').then(m => ({ default: m.ChannelPerformanceView })));
+const BudgetOptimizerView = lazyWithRetry(() => import('./components/BudgetOptimizerView').then(m => ({ default: m.BudgetOptimizerView })));
+const WhatIfSimulatorView = lazyWithRetry(() => import('./components/WhatIfSimulatorView').then(m => ({ default: m.WhatIfSimulatorView })));
+const InsightsView = lazyWithRetry(() => import('./components/InsightsView').then(m => ({ default: m.InsightsView })));
+const ChannelLibraryView = lazyWithRetry(() => import('./components/ChannelLibraryView').then(m => ({ default: m.ChannelLibraryView })));
+const MethodologyGuideView = lazyWithRetry(() => import('./components/MethodologyGuideView').then(m => ({ default: m.MethodologyGuideView })));
+const ReportView = lazyWithRetry(() => import('./components/ReportView').then(m => ({ default: m.ReportView })));
+const SettingsView = lazyWithRetry(() => import('./components/SettingsView').then(m => ({ default: m.SettingsView })));
+const TourGuideModal = lazyWithRetry(() => import('./components/TourGuideModal').then(m => ({ default: m.TourGuideModal })));
 
 const ViewLoadingFallback = () => (
   <div className="flex items-center justify-center p-16 text-slate-400 dark:text-slate-500">
@@ -349,21 +379,22 @@ export default function App() {
     );
   }
 
-  // Render sales landing page when on landing view
+  // Render sales landing page when on landing view (synchronous, instant load)
   if (currentView === 'landing') {
     return (
-      <Suspense fallback={<ViewLoadingFallback />}>
+      <ErrorBoundary>
         <LandingPage
           onEnterWorkspace={() => setCurrentView('dashboard')}
           theme={theme}
           onToggleTheme={handleToggleTheme}
         />
-      </Suspense>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <ProtectedRouter currentView={currentView} onRedirectToLanding={() => setCurrentView('landing')}>
+    <ErrorBoundary>
+      <ProtectedRouter currentView={currentView} onRedirectToLanding={() => setCurrentView('landing')}>
       <div className="flex w-full min-h-[100dvh] h-[100dvh] overflow-hidden bg-slate-100 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 antialiased transition-colors duration-200">
         {/* Toast Notification */}
         {statusNotification && (
@@ -386,7 +417,6 @@ export default function App() {
           }}
           readinessScore={currentDataset?.readiness || null}
           isModelTrained={!!modelResults}
-          isSyntheticData={currentDataset?.isSynthetic ?? false}
           onOpenTour={() => setIsTourOpen(true)}
           isOpenMobile={isMobileMenuOpen}
           onCloseMobile={() => setIsMobileMenuOpen(false)}
@@ -403,7 +433,6 @@ export default function App() {
             isModelRunning={isModelRunning}
             isModelTrained={!!modelResults}
             filename={currentDataset?.filename}
-            isSyntheticData={currentDataset?.isSynthetic}
             theme={theme}
             onToggleTheme={handleToggleTheme}
             availableDates={availableDates}
@@ -551,5 +580,6 @@ export default function App() {
         </Suspense>
       </div>
     </ProtectedRouter>
+    </ErrorBoundary>
   );
 }

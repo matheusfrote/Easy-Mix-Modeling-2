@@ -44,12 +44,12 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({
       ],
       interactiveSnippet: {
         title: 'Check-up de Prontidão de Dados',
-        score: '96 / 100',
-        badge: 'Pronto para Modelagem',
+        score: 'Análise Contínua',
+        badge: 'Auditoria Estatística',
         items: [
-          { name: 'Multicolinearidade (VIF)', status: 'Baixa (VIF < 3.2)', ok: true },
-          { name: 'Granularidade Temporal', status: 'Semanal (104 semanas)', ok: true },
-          { name: 'Integridade de Células', status: '0 valores ausentes', ok: true }
+          { name: 'Multicolinearidade (VIF)', status: 'Calculado dinamicamente', ok: true },
+          { name: 'Granularidade Temporal', status: 'Mapeamento automático', ok: true },
+          { name: 'Integridade de Células', status: 'Verificação de N/A', ok: true }
         ]
       }
     },
@@ -68,13 +68,13 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({
         'Biblioteca calibrada com priors de mais de 70 formatos de mídia (Search, Social, Display, TV, Retail Media, OOH).'
       ],
       interactiveSnippet: {
-        title: 'Parâmetros Meridian Calibrados',
-        score: 'R² = 0.94',
-        badge: 'Convergência R-hat < 1.05',
+        title: 'Parâmetros Meridian',
+        score: 'Distribuição Posterior',
+        badge: 'MCMC / NUTS',
         items: [
-          { name: 'Meta Ads Adstock', status: 'Decay α = 0.42 (Half-life 2.4 sem)', ok: true },
-          { name: 'Google Ads Hill Curve', status: 'K = R$ 380k | S = 1.45', ok: true },
-          { name: 'Linha de Base Orgânica', status: '42.8% da receita total', ok: true }
+          { name: 'Adstock Decay (α)', status: 'Estimado por cadeia Markoviana', ok: true },
+          { name: 'Curva de Hill (K, S)', status: 'Otimização paramétrica', ok: true },
+          { name: 'Convergência (R-hat)', status: 'Monitoramento contínuo', ok: true }
         ]
       }
     },
@@ -94,12 +94,12 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({
       ],
       interactiveSnippet: {
         title: 'Otimização por Equimarginalidade',
-        score: '+R$ 384.500',
-        badge: '+8.2% de Faturamento',
+        score: 'Curva de Resposta',
+        badge: 'ROI Marginal Otimizado',
         items: [
-          { name: 'Realocação Google Ads', status: '+R$ 65.000 / mês', ok: true },
-          { name: 'Ajuste Meta Ads (Saturado)', status: '-R$ 45.000 / mês', ok: true },
-          { name: 'Incremento YouTube Vídeo', status: '+R$ 30.000 / mês', ok: true }
+          { name: 'Canais Sub-investidos', status: 'Sugestão de Aumento', ok: true },
+          { name: 'Canais Saturados', status: 'Prevenção de Desperdício', ok: true },
+          { name: 'Receita Incremental', status: 'Projeção Matemática', ok: true }
         ]
       }
     },
@@ -118,13 +118,13 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({
         'Recomendações táticas de experimentos de incrementalidade (Geo-experiments / Lift tests) para validação.'
       ],
       interactiveSnippet: {
-        title: 'Sumário Executivo Gerado por IA',
-        score: 'Gemini 2.5',
-        badge: 'Pronto para Apresentação',
+        title: 'Sumário Executivo Gerado',
+        score: 'Gemini Integrado',
+        badge: 'LLM com Contexto Matemático',
         items: [
-          { name: 'Principal Gargalo', status: 'Saturação precoce em Meta Ads topo de funil', ok: true },
-          { name: 'Oportunidade', status: 'Google Search sub-investido em 24%', ok: true },
-          { name: 'Recomendação Tática', status: 'Migrar R$ 20k/mês para YouTube & Search', ok: true }
+          { name: 'Identificação de Gargalos', status: 'Análise de Saturação', ok: true },
+          { name: 'Oportunidades de Escala', status: 'Baseado no mROI', ok: true },
+          { name: 'Planos de Ação', status: 'Linguagem de Negócios', ok: true }
         ]
       }
     }

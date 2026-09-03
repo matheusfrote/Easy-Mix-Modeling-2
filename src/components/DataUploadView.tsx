@@ -58,51 +58,6 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
         const saved = await localforage.getItem<ConnectedSourceInstance[]>('easy_mix_connected_sources');
         if (saved && Array.isArray(saved) && saved.length > 0) {
           setConnectedSources(saved);
-        } else if (currentDataset?.isSynthetic) {
-          // Pre-populate default active sources when synthetic data is active
-          const defaultSyntheticSources: ConnectedSourceInstance[] = [
-            {
-              id: 'conn-google-ads',
-              sourceId: 'google-ads',
-              name: 'Google Ads (Search & PMax)',
-              category: 'advertising',
-              connectedAt: new Date(Date.now() - 86400000 * 30).toISOString(),
-              lastSyncedAt: 'há 15 min',
-              status: 'active',
-              historicalWeeks: 104,
-              channelsCount: 2,
-              frequency: 'weekly',
-              historicalPeriod: '24m'
-            },
-            {
-              id: 'conn-meta-ads',
-              sourceId: 'meta-ads',
-              name: 'Meta Ads (Facebook & Instagram)',
-              category: 'advertising',
-              connectedAt: new Date(Date.now() - 86400000 * 20).toISOString(),
-              lastSyncedAt: 'há 20 min',
-              status: 'active',
-              historicalWeeks: 104,
-              channelsCount: 1,
-              frequency: 'weekly',
-              historicalPeriod: '24m'
-            },
-            {
-              id: 'conn-ga4',
-              sourceId: 'ga4',
-              name: 'Google Analytics 4 (Receita & Vendas)',
-              category: 'analytics',
-              connectedAt: new Date(Date.now() - 86400000 * 15).toISOString(),
-              lastSyncedAt: 'há 10 min',
-              status: 'active',
-              historicalWeeks: 104,
-              channelsCount: 1,
-              frequency: 'daily',
-              historicalPeriod: '24m'
-            }
-          ];
-          setConnectedSources(defaultSyntheticSources);
-          localforage.setItem('easy_mix_connected_sources', defaultSyntheticSources).catch(console.error);
         }
       } catch (err) {
         console.error('Error loading connected sources:', err);
@@ -110,7 +65,7 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
     };
 
     loadSavedSources();
-  }, [currentDataset?.isSynthetic]);
+  }, []);
 
   const saveSources = (updated: ConnectedSourceInstance[]) => {
     setConnectedSources(updated);

@@ -1,4 +1,4 @@
-export type ChannelType = 'search' | 'social' | 'video' | 'display' | 'tv' | 'other';
+export type ChannelType = 'search' | 'social' | 'video' | 'display' | 'tv' | 'digital' | 'other';
 
 export type ColumnType = 'date' | 'kpi' | 'media_spend' | 'media_impressions' | 'media_clicks' | 'control' | 'ignore';
 
@@ -22,7 +22,6 @@ export interface DatasetSummary {
   channels: string[];
   totalSpend: number;
   totalKpi: number;
-  isSynthetic?: boolean;
 }
 
 export type AlertSeverity = 'CRÍTICO' | 'ALTO' | 'MÉDIO' | 'BAIXO';
@@ -281,7 +280,6 @@ export interface MeridianModelResults {
   mostEfficientChannel: string;
   saturatedChannel: string;
   bestOpportunityChannel: string;
-  isSyntheticData: boolean;
   actualVsPredicted?: {
     date: string;
     actual: number;
@@ -346,6 +344,10 @@ export interface ScenarioDefinition {
   blendedRoi: number;
   marginalRoi: number;
   efficiencyRating: 'Alta' | 'Média' | 'Retorno Decrescente';
+  liftOverBaseline?: number;
+  liftPercentage?: string | number;
+  projectedTotalKpi?: number;
+  projectedRoi?: number;
 }
 
 export interface AIInsightItem {
@@ -357,6 +359,8 @@ export interface AIInsightItem {
   channel?: string;
   metric?: string;
   actionableStep: string;
+  description?: string;
+  impact?: string;
 }
 
 export interface ExecutiveReportData {

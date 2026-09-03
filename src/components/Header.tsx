@@ -14,8 +14,6 @@ interface HeaderProps {
   isModelRunning: boolean;
   isModelTrained: boolean;
   filename?: string;
-  isSyntheticData?: boolean;
-  onLoadSynthetic: () => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   availableDates?: string[];
@@ -96,8 +94,6 @@ export const Header: React.FC<HeaderProps> = ({
   isModelRunning,
   isModelTrained,
   filename,
-  isSyntheticData,
-  onLoadSynthetic,
   theme,
   onToggleTheme,
   availableDates = [],

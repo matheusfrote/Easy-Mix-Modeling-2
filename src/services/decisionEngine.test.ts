@@ -194,7 +194,6 @@ describe('Decision Engine - Core Scenarios & Decision Trees', () => {
       totalKpi: 1200000,
       blendedRoi: 3.5,
       blendedRoas: 3.5,
-      isSyntheticData: true,
       mostEfficientChannel: 'Google Search',
       saturatedChannel: 'Traditional TV',
       bestOpportunityChannel: 'Google Search',

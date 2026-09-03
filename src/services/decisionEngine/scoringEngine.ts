@@ -1,5 +1,5 @@
 import { ChannelFeatures, DecisionPriority, DecisionAction, AuditTrail } from './types';
-import { RECOMMENDATION_WEIGHTS, PRIORITY_THRESHOLDS } from './config';
+import { PRIORITY_THRESHOLDS } from './config';
 
 export interface ScoringResult {
   score: number;
@@ -8,69 +8,44 @@ export interface ScoringResult {
 }
 
 /**
- * Calculates a multi-criteria decision score (0 - 100) and priority level
+ * Calculates priority level based strictly on the decision and statistical boundaries.
+ * No arbitrary numeric scores are generated to avoid "fake" heuristics.
  */
 export function calculateRecommendationScore(
   features: ChannelFeatures,
   decision: DecisionAction
 ): ScoringResult {
-  // Component 1: Marginal ROI (0 - 100)
-  const mroiComp = features.mroiScore * RECOMMENDATION_WEIGHTS.marginalROI;
 
-  // Component 2: Opportunity / Saturation Headroom (0 - 100)
-  const oppComp = features.opportunityScore * RECOMMENDATION_WEIGHTS.opportunity;
-
-  // Component 3: Contribution / Share Scale (0 - 100)
-  const contComp = features.contributionScore * RECOMMENDATION_WEIGHTS.contribution;
-
-  // Component 4: Historical Average ROI (0 - 100)
-  const roiComp = features.roiScore * RECOMMENDATION_WEIGHTS.roi;
-
-  // Component 5: Statistical Confidence (0 - 100)
-  const confComp = (features.confidenceScore * 100) * RECOMMENDATION_WEIGHTS.confidence;
-
-  // Component 6: Trend Trajectory (0 - 100)
-  const trendComp = features.trendScore * RECOMMENDATION_WEIGHTS.trend;
-
-  let rawScore = mroiComp + oppComp + contComp + roiComp + confComp + trendComp;
-
-  // Decision-specific calibration:
-  // If decision is DECREASE because of severe saturation, score reflects urgency of reallocation
-  if (decision === 'DECREASE') {
-    const urgency = Math.min(100, features.saturationLevel * 0.6 + (Math.max(0, 100 - features.mroiScore) * 0.4));
-    rawScore = Math.max(rawScore, urgency);
-  } else if (decision === 'INVESTIGATE') {
-    // Investigative decisions stay in moderate score band
-    rawScore = Math.min(65, Math.max(30, rawScore * 0.7));
-  } else if (decision === 'NO_CONCLUSION' || decision === 'BLOCKED') {
-    rawScore = 0;
-  }
-
-  const finalScore = Math.round(Math.min(100, Math.max(0, rawScore)));
-
-  // Priority mapping considering both score and confidence
+  // Priority mapping strictly based on decision type and statistical confidence boundaries
   let priority: DecisionPriority = 'LOW';
+  
   if (decision === 'BLOCKED') {
-    priority = 'HIGH';
-  } else if (finalScore >= PRIORITY_THRESHOLDS.high && features.confidenceScore >= 0.60) {
-    priority = 'HIGH';
-  } else if (finalScore >= PRIORITY_THRESHOLDS.medium || (decision === 'DECREASE' && features.saturationLevel > 80)) {
-    priority = 'MEDIUM';
+    priority = 'HIGH'; // Critical failure, needs immediate attention
+  } else if (decision === 'INCREASE' && features.confidence === 'Alta') {
+    priority = 'HIGH'; // High confidence opportunity
+  } else if (decision === 'DECREASE' && features.saturationLevel > 80) {
+    priority = 'HIGH'; // High risk of wasted spend
+  } else if (decision === 'DECREASE' || decision === 'INCREASE' || decision === 'TEST') {
+    priority = 'MEDIUM'; // Actionable but not as critical or less confident
+  } else if (decision === 'INVESTIGATE') {
+    priority = 'MEDIUM'; // Requires manual review
   } else {
-    priority = 'LOW';
+    priority = 'LOW'; // Maintain or No Conclusion
   }
 
+  // To maintain interface compatibility without using fake numeric scores, 
+  // we return 0 for the score, meaning the UI shouldn't rely on a 0-100 arbitrary number.
   return {
-    score: finalScore,
+    score: 0,
     priority,
     scoreBreakdown: {
-      marginalRoiComponent: Number(mroiComp.toFixed(1)),
-      opportunityComponent: Number(oppComp.toFixed(1)),
-      contributionComponent: Number(contComp.toFixed(1)),
-      roiComponent: Number(roiComp.toFixed(1)),
-      confidenceComponent: Number(confComp.toFixed(1)),
-      trendComponent: Number(trendComp.toFixed(1)),
-      totalScore: finalScore
+      marginalRoiComponent: 0,
+      opportunityComponent: 0,
+      contributionComponent: 0,
+      roiComponent: 0,
+      confidenceComponent: 0,
+      trendComponent: 0,
+      totalScore: 0
     }
   };
 }

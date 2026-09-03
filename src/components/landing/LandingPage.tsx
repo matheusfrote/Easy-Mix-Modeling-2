@@ -43,7 +43,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   const handleExploreDemo = () => {
-    onEnterWorkspace();
+    handleOpenLogin();
   };
 
   return (
@@ -104,3 +104,5 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     </div>
   );
 };
+
+export default LandingPage;

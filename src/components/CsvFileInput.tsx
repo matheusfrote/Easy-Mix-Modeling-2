@@ -33,7 +33,7 @@ export const CsvFileInput: React.FC<CsvFileInputProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastUploadedFileName, setLastUploadedFileName] = useState<string | null>(
-    currentDataset && !currentDataset.isSynthetic ? currentDataset.filename : null
+    currentDataset ? currentDataset.filename : null
   );
   const [fileSizeFormatted, setFileSizeFormatted] = useState<string | null>(null);
 
@@ -194,7 +194,7 @@ export const CsvFileInput: React.FC<CsvFileInputProps> = ({
     document.body.removeChild(link);
   };
 
-  const isCurrentUploaded = currentDataset && !currentDataset.isSynthetic;
+  const isCurrentUploaded = !!currentDataset;
 
   return (
     <div className="space-y-4" id="csv-file-uploader-container">

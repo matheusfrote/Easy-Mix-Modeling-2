@@ -38,7 +38,6 @@ interface SidebarProps {
   onSelectView: (view: NavView) => void;
   readinessScore: DataReadinessScore | null;
   isModelTrained: boolean;
-  isSyntheticData: boolean;
   onOpenTour?: () => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
@@ -59,7 +58,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectView,
   readinessScore,
   isModelTrained,
-  isSyntheticData,
   onOpenTour,
   isOpenMobile = false,
   onCloseMobile
@@ -179,14 +177,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
         </div>
-
-        {/* Synthetic Data Alert / Status */}
-        {isSyntheticData && (
-          <div className="mx-3 sm:mx-4 mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
-            <span className="truncate">Dados Demonstrativos (Demo)</span>
-          </div>
-        )}
 
         {/* Navigation List */}
         <nav className="flex-1 px-2.5 sm:px-3 py-3 sm:py-4 space-y-1 overflow-y-auto min-h-0">

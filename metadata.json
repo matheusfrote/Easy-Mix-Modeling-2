@@ -1,6 +1,8 @@
 {
-  "name": "Easy Mix Modeling",
-  "description": "Enterprise Bayesian Marketing Mix Modeling (MMM) and budget optimization SaaS platform powered by Google Meridian principles and Gemini AI.",
+  "name": "Easy-Mix-Modeling-4",
+  "description": "Imported from GitHub: matheusfrote/Easy-Mix-Modeling-2",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

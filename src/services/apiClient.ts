@@ -22,7 +22,6 @@ export interface UploadResponse {
   mappings: ColumnMapping[];
   validation: StatisticalValidationReport;
   readiness: DataReadinessScore;
-  isSynthetic: boolean;
   filename: string;
 }
 
@@ -33,82 +32,10 @@ let localDatasetCache: {
   mappings: ColumnMapping[];
   validation: StatisticalValidationReport;
   readiness: DataReadinessScore;
-  isSynthetic: boolean;
   filename: string;
 } | null = null;
 
 let localModelResultsCache: MeridianModelResults | null = null;
-
-function getFallbackInsights(results: MeridianModelResults): AIInsightItem[] {
-  const { cards } = generateDecisionInsights(results);
-  if (cards && cards.length > 0) {
-    return cards.map(c => ({
-      id: c.id,
-      type: c.type,
-      title: c.title,
-      summary: c.summary,
-      detail: c.detail,
-      channel: c.channel,
-      metric: c.metric,
-      actionableStep: c.actionableStep,
-      confidence: c.confidenceLabel,
-      impact: c.impact
-    }));
-  }
-
-  const topCh = results.channels.find(c => c.channelName === results.bestOpportunityChannel) || results.channels[0];
-  const satCh = results.channels.find(c => c.channelName === results.saturatedChannel) || results.channels[results.channels.length - 1];
-
-  return [
-    {
-      id: 'insight-opp-1',
-      type: 'opportunity',
-      title: `${results.bestOpportunityChannel} possui o maior retorno marginal`,
-      summary: `Cada R$ 1,00 adicional investido em ${results.bestOpportunityChannel} gera aproximadamente R$ ${topCh?.marginalRoi?.toFixed(2) || '2.80'} em receita incremental.`,
-      detail: `O canal ainda não atingiu sua zona de saturação severa (operando em ~${topCh?.saturationLevel || 40}% da capacidade máxima da curva de Hill).`,
-      channel: results.bestOpportunityChannel,
-      metric: `mROI: ${topCh?.marginalRoi?.toFixed(2) || '2.80'}x`,
-      actionableStep: `Aumente a alocação gradual em ${results.bestOpportunityChannel} em +15% a +25% no próximo ciclo orçamentário.`
-    },
-    {
-      id: 'insight-sat-1',
-      type: 'saturation',
-      title: `${results.saturatedChannel} apresenta sinais de saturação`,
-      summary: `O canal atingiu nível de saturação de ${satCh?.saturationLevel || 80}%, reduzindo a eficiência marginal de novos investimentos.`,
-      detail: `Na curva de Hill estimada pelo Meridian, o retorno marginal caiu significativamente em relação ao ROI histórico médio.`,
-      channel: results.saturatedChannel,
-      metric: `Saturação: ${satCh?.saturationLevel || 80}%`,
-      actionableStep: `Reduza o investimento excedente em ${results.saturatedChannel} e realoque para canais com maior inclinação marginal.`
-    }
-  ];
-}
-
-function getFallbackReport(results: MeridianModelResults, opt: BudgetOptimizationResult): ExecutiveReportData {
-  const topCh = results.channels.find(c => c.channelName === results.mostEfficientChannel) || results.channels[0];
-  const oppCh = results.channels.find(c => c.channelName === results.bestOpportunityChannel) || results.channels[0];
-
-  return {
-    title: 'Relatório Executivo de Marketing Mix Modeling (MMM)',
-    companyName: 'Organização',
-    generatedAt: new Date().toLocaleDateString('pt-BR', { dateStyle: 'long' }),
-    summary: `O modelo econométrico bayesiano Google Meridian processou o histórico de mídia e vendas, alcançando aderência de R² = ${results.diagnostics.rSquared} e MAPE = ${results.diagnostics.mape}%. A mídia paga gerou R$ ${results.diagnostics.mediaContribution.toLocaleString('pt-BR')} (${results.diagnostics.mediaShare}% do faturamento total), com ROI médio consolidado de ${results.blendedRoi}x. Identificamos R$ ${opt.totalIncrementalKpi.toLocaleString('pt-BR')} em potencial de receita incremental via realocação estratégica para canais com maior retorno marginal.`,
-    dataReadinessSummary: `A base de dados histórica atendeu aos critérios estatísticos de validação, permitindo a separação confiável de carryover (adstock) e saturação (curvas de Hill) sem multicolinearidade impeditiva.`,
-    historicalSpendSummary: `Total histórico investido de R$ ${results.totalSpend.toLocaleString('pt-BR')} distribuído entre ${results.channels.length} canais. O canal de maior investimento foi ${results.channels[0]?.channelName || 'Google Ads'}.`,
-    channelPerformanceSummary: `O canal mais eficiente em termos de retorno sobre investimento foi ${results.mostEfficientChannel} (ROI ${topCh?.roi?.toFixed(2)}x, intervalo [${topCh?.roiInterval?.ci025?.toFixed(1)}x - ${topCh?.roiInterval?.ci975?.toFixed(1)}x]). O canal com maior retorno marginal atual é ${results.bestOpportunityChannel} (mROI ${oppCh?.marginalRoi?.toFixed(2)}x).`,
-    budgetRecommendationSummary: `A otimização matemática pelo princípio da equimarginalidade recomenda direcionar o próximo ciclo de investimento prioritariamente para ${results.bestOpportunityChannel}, reduzindo a alocação em ${results.saturatedChannel} para mitigar perdas de eficiência por retornos decrescentes.`,
-    scenariosSummary: `Simulações demonstram que uma realocação do mesmo orçamento atual pode elevar a receita em +${opt.overallLiftPercentage}% (+R$ ${opt.totalIncrementalKpi.toLocaleString('pt-BR')}) mantendo os mesmos custos totais.`,
-    risksAndLimitations: [
-      'As estimativas de MMM pressupõem estabilidade relativa de mercado e dos custos de mídia (CPMs/CPCs).',
-      'Canais com menor variabilidade histórica apresentam intervalos de credibilidade bayesiana mais amplos.',
-      'Recomenda-se calibrar o modelo periodicamente com experimentos de incrementalidade (Geo-lift e testes A/B).'
-    ],
-    methodologyNotes: [
-      'Motor: Google Meridian Bayesian Marketing Mix Modeling.',
-      'Transformações: Decaimento geométrico (Adstock) e curvas de saturação não-lineares de Hill.',
-      'Amostrador: Amostragem Markov Chain Monte Carlo (MCMC) com diagnósticos de convergência Gelman-Rubin (R-hat) e Effective Sample Size (ESS).'
-    ]
-  };
-}
 
 // Robust helper to perform safe JSON API requests and prevent "Unexpected token < in JSON at position 0"
 async function safeApiCall<T>(url: string, options?: RequestInit): Promise<T | null> {
@@ -149,7 +76,6 @@ export const apiClient = {
         mappings: data.mappings,
         validation: data.validation,
         readiness: data.readiness,
-        isSynthetic: false,
         filename: data.filename || filename || 'uploaded_data.csv'
       };
       return {
@@ -172,7 +98,6 @@ export const apiClient = {
       mappings,
       validation: val,
       readiness,
-      isSynthetic: false,
       filename: filename || 'uploaded_data.csv'
     };
 
@@ -182,7 +107,6 @@ export const apiClient = {
       mappings,
       validation: val,
       readiness,
-      isSynthetic: false,
       filename: result.filename
     };
 

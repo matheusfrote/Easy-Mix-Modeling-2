@@ -201,17 +201,34 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
           <div className="grid grid-cols-1 gap-4">
             {insights.map((item, idx) => (
               <InsightCard
-                key={idx}
+                key={item.id || idx}
                 title={item.title}
-                type={item.type}
-                recommendation={item.description}
-                impact={item.impact}
-                channel={item.channel}
-                evidence={
-                  item.channel
-                    ? `Baseado no ROI observado, taxa de saturação e curva de resposta de ${item.channel}.`
-                    : 'Baseado na distribuição global de investimentos e retorno consolidado do modelo.'
+                category={
+                  item.type === 'opportunity'
+                    ? 'Oportunidade de Escala'
+                    : item.type === 'saturation'
+                    ? 'Alerta de Saturação'
+                    : item.type === 'risk'
+                    ? 'Risco de Alocação'
+                    : 'Eficiência de Mídia'
                 }
+                finding={item.summary || item.detail || item.description || ''}
+                actionText={item.actionableStep}
+                impact={item.impact}
+                status={item.type === 'risk' || item.type === 'saturation' ? 'warning' : 'info'}
+                evidence={{
+                  metric: item.metric || 'ROI Marginal (mROI)',
+                  value: item.channel ? 'Curva de Saturação Hill' : 'Portfólio Consolidado',
+                  channel: item.channel,
+                  explanation:
+                    item.detail ||
+                    item.summary ||
+                    (item.channel
+                      ? `Baseado no ROI observado, taxa de saturação e curva de resposta de ${item.channel}.`
+                      : 'Baseado na distribuição global de investimentos e retorno consolidado do modelo.')
+                }}
+                onApplyAction={onNavigateToOptimizer}
+                actionButtonLabel="Aplicar no Otimizador"
               />
             ))}
           </div>

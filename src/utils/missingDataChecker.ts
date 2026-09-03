@@ -147,7 +147,7 @@ export function analyzeDateRangeMissingData(
       if (match && match[1]) {
         missingPercentage = parseFloat(match[1]);
       } else {
-        missingPercentage = 12.5; // Default fallback above 10%
+        missingPercentage = 10.1; // Minimal threshold to trigger failure
       }
     }
   }
