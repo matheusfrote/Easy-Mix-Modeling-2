@@ -107,7 +107,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           >
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-              <span>100% Cookieless & LGPD Seguro</span>
+              <span>Séries Temporais Cookieless</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />

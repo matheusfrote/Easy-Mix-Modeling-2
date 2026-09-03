@@ -92,13 +92,6 @@ export const LandingNavbar: React.FC<LandingNavbarProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => scrollToSection('planos')}
-              className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-            >
-              Planos & Preços
-            </button>
-            <button
-              type="button"
               onClick={() => scrollToSection('faq')}
               className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
             >
@@ -188,13 +181,6 @@ export const LandingNavbar: React.FC<LandingNavbarProps> = ({
               className="text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               Como Funciona o Meridian
-            </button>
-            <button
-              type="button"
-              onClick={() => scrollToSection('planos')}
-              className="text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              Planos & Preços
             </button>
             <button
               type="button"

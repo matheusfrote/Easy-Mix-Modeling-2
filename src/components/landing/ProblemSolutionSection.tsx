@@ -22,7 +22,7 @@ export const ProblemSolutionSection: React.FC<ProblemSolutionSectionProps> = ({ 
       topic: 'Privacidade & Rastreamento',
       traditional: 'Depende de cookies de terceiros, pixels no navegador e identificadores no nível do usuário, sofrendo com bloqueios de adblockers e restrições do iOS 14.5+.',
       traditionalBad: true,
-      meridian: '100% baseado em séries temporais agregadas (investimento, impressões e receita). Imune ao fim dos cookies e em total conformidade com a LGPD e GDPR.',
+      meridian: 'Baseado em séries temporais agregadas (investimento, impressões e receita). Opera de forma cookieless e alinhada com as diretrizes da LGPD e GDPR.',
       meridianGood: true
     },
     {
@@ -121,7 +121,7 @@ export const ProblemSolutionSection: React.FC<ProblemSolutionSectionProps> = ({ 
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">Easy Mix Modeling (Econometria Moderna)</h3>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 font-semibold">Científico, holístico e 100% resiliente</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 font-semibold">Científico, holístico e sustentável</p>
                 </div>
               </div>
 

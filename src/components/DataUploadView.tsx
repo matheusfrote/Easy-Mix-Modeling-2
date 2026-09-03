@@ -177,7 +177,7 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
             </span>
           </div>
           <p className={`text-xs leading-relaxed ${ingestionMode === 'api' ? 'text-blue-800/80 dark:text-blue-200/70' : 'text-slate-500 dark:text-slate-400'}`}>
-            Autentique Google Ads, Meta, GA4 e outros. O sistema extrai e padroniza 100% automático. Zero configuração.
+            Conecte Google Ads e Meta Ads com suas credenciais para extração e padronização de séries temporais de investimento.
           </p>
         </button>
 

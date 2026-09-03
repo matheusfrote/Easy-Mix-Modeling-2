@@ -91,7 +91,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <ShieldCheck className="w-4 h-4 text-emerald-500" />
               <span>Autenticação OAuth Oficial Google</span>
             </div>
-            <span className="font-mono text-[10px] text-slate-400">Zero Fake Data</span>
+            <span className="font-mono text-[10px] text-slate-400">Autenticação Segura</span>
           </div>
         </motion.div>
       </div>

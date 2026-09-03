@@ -160,5 +160,101 @@ describe('Security Architecture Test Suite', () => {
       expect(sessionManager.hasPermission(analystSession, 'ADMIN')).toBe(false);
       expect(sessionManager.hasPermission(analystSession, 'OWNER')).toBe(false);
     });
+
+    it('isolates Google and Meta Ads credentials between tenant sessions', () => {
+      const sess1 = sessionManager.createSession({
+        userId: 'usr_ads_1',
+        email: 'tenant1@corp.com',
+        name: 'Tenant 1',
+        company: 'Corp 1'
+      });
+
+      const sess2 = sessionManager.createSession({
+        userId: 'usr_ads_2',
+        email: 'tenant2@corp.com',
+        name: 'Tenant 2',
+        company: 'Corp 2'
+      });
+
+      sessionManager.setAdsCredentials(sess1, 'google-ads', {
+        developerToken: 'token_tenant_1',
+        clientId: 'client_1.apps.googleusercontent.com',
+        customerId: '111-222-3333'
+      });
+
+      const creds1 = sessionManager.getAdsCredentials(sess1);
+      const creds2 = sessionManager.getAdsCredentials(sess2);
+
+      expect(creds1.googleAds?.developerToken).toBe('token_tenant_1');
+      expect(creds1.googleAds?.customerId).toBe('111-222-3333');
+      // Tenant 2 must have isolated empty credentials (no cross-tenant leak)
+      expect(creds2.googleAds).toBeUndefined();
+
+      // Test removal
+      sessionManager.removeAdsCredentials(sess1, 'google-ads');
+      expect(sessionManager.getAdsCredentials(sess1).googleAds).toBeUndefined();
+    });
+  });
+
+  describe('Ads Credentials Redaction in Audit Logger', () => {
+    it('redacts developer tokens, app secrets, and client secrets', () => {
+      const adsAuditData = {
+        platform: 'google-ads',
+        developerToken: 'dev_token_secret_123',
+        clientSecret: 'secret_oauth_456',
+        appSecret: 'meta_secret_789',
+        accessToken: 'access_token_graph_api'
+      };
+
+      const redacted = redactSensitiveData(adsAuditData);
+      expect(redacted.developerToken).toBe('[REDACTED]');
+      expect(redacted.clientSecret).toBe('[REDACTED]');
+      expect(redacted.appSecret).toBe('[REDACTED]');
+      expect(redacted.accessToken).toBe('[REDACTED]');
+      expect(redacted.platform).toBe('google-ads');
+    });
+  });
+
+  describe('Phase 1: Statistical Integrity & Controlled Meridian Offline Response', () => {
+    it('returns controlled 503 MERIDIAN_UNAVAILABLE when Meridian service is offline (no fake metrics or Math.random)', async () => {
+      const { mmmServiceClient } = await import('../services/mmmService');
+      const response = await mmmServiceClient.fitModel({
+        rows: [{ date: '2024-01-01', revenue: 1000, google_spend: 200 }],
+        config: {
+          dateColumn: 'date',
+          kpiColumn: 'revenue',
+          mediaChannels: [{ channelName: 'Google', spendColumn: 'google_spend' }]
+        }
+      });
+
+      expect(response.status).toBe('service_unavailable');
+      expect(response.errors).toBeDefined();
+      expect(response.errors![0].code).toBe('MERIDIAN_UNAVAILABLE');
+      expect(response.results).toBeUndefined();
+    });
+
+    it('returns HTTP 503 with code MERIDIAN_UNAVAILABLE via API router when offline', async () => {
+      const { handleApiRequest } = await import('../apiRouter');
+      
+      // Seed workspace with data first
+      await handleApiRequest('/api/upload', 'POST', {
+        rows: [
+          { date: '2024-01-01', revenue: 1000, google_spend: 200 },
+          { date: '2024-01-08', revenue: 1200, google_spend: 250 }
+        ]
+      });
+
+      const res = await handleApiRequest('/api/model', 'POST', {
+        config: {
+          dateColumn: 'date',
+          kpiColumn: 'revenue',
+          mediaChannels: [{ channelName: 'Google', spendColumn: 'google_spend' }]
+        }
+      });
+
+      expect(res.status).toBe(503);
+      expect(res.data.code).toBe('MERIDIAN_UNAVAILABLE');
+      expect(res.data.retryable).toBe(true);
+    });
   });
 });

@@ -146,7 +146,7 @@ async function startServer() {
       const result = await handleApiRequest(urlPath, method, body, req.headers, clientIp);
       res.status(result.status).json(result.data);
     } catch (error: any) {
-      const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const requestId = `req_${Date.now()}_${crypto.randomUUID().replace(/-/g, '').substring(0, 10)}`;
       auditLogger.log('AUTH_LOGIN_FAILURE', {
         ip: clientIp,
         path: urlPath,

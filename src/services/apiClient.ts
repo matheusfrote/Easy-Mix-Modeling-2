@@ -13,6 +13,30 @@ import { inferColumnMappings } from './dataMapper';
 import { calculateDataReadinessScore } from './dataReadiness';
 import { generateDecisionInsights, answerStrategicQuestion } from './decisionEngine';
 
+export interface AdsPlatformStatus {
+  isConfigured: boolean;
+  status: 'env_connected' | 'user_connected' | 'disconnected';
+  source: 'environment' | 'user_session' | 'none';
+  details: {
+    developerTokenPresent?: boolean;
+    clientIdPresent: boolean;
+    clientSecretPresent: boolean;
+    customerIdPresent?: boolean;
+    refreshTokenPresent?: boolean;
+    accessTokenPresent?: boolean;
+    adAccountIdPresent?: boolean;
+  };
+  maskedCustomerId?: string;
+  maskedAccountId?: string;
+  lastConfiguredAt: string | null;
+}
+
+export interface AdsConnectionStatusResponse {
+  isAuthenticated: boolean;
+  googleAds: AdsPlatformStatus;
+  metaAds: AdsPlatformStatus;
+}
+
 export interface UploadResponse {
   rowCount: number;
   columnCount: number;
@@ -37,8 +61,22 @@ let localDatasetCache: {
 
 let localModelResultsCache: MeridianModelResults | null = null;
 
+export class ApiError extends Error {
+  code: string;
+  status: number;
+  details?: any;
+
+  constructor(message: string, code = 'API_ERROR', status = 500, details?: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
+
 // Robust helper to perform safe JSON API requests and prevent "Unexpected token < in JSON at position 0"
-async function safeApiCall<T>(url: string, options?: RequestInit): Promise<T | null> {
+async function safeApiCall<T>(url: string, options?: RequestInit, throwOnError = false): Promise<T | null> {
   try {
     const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
     const headers: Record<string, string> = {
@@ -54,6 +92,20 @@ async function safeApiCall<T>(url: string, options?: RequestInit): Promise<T | n
       headers
     });
     if (!res.ok) {
+      let errorData: any = null;
+      try {
+        const text = await res.text();
+        errorData = JSON.parse(text);
+      } catch {}
+
+      if (throwOnError) {
+        throw new ApiError(
+          errorData?.message || errorData?.details || `Erro na requisição (${res.status})`,
+          errorData?.code || 'HTTP_ERROR',
+          res.status,
+          errorData?.details
+        );
+      }
       return null;
     }
     const contentType = res.headers.get('content-type') || '';
@@ -69,7 +121,13 @@ async function safeApiCall<T>(url: string, options?: RequestInit): Promise<T | n
     } catch {
       return null;
     }
-  } catch {
+  } catch (err) {
+    if (throwOnError && err instanceof ApiError) {
+      throw err;
+    }
+    if (throwOnError && err instanceof Error) {
+      throw new ApiError(err.message, 'NETWORK_ERROR', 0);
+    }
     return null;
   }
 }
@@ -215,12 +273,16 @@ export const apiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config, rows })
-    });
+    }, true);
     if (data && data.channels && data.diagnostics) {
       localModelResultsCache = data;
       return data;
     }
-    throw new Error('Falha ao comunicar com o servidor Meridian. Serviço indisponível ou modelo não convergiu.');
+    throw new ApiError(
+      'O serviço Google Meridian está temporariamente indisponível.',
+      'MERIDIAN_UNAVAILABLE',
+      503
+    );
   },
 
   async getModelResults(): Promise<MeridianModelResults> {
@@ -300,5 +362,103 @@ export const apiClient = {
     }
 
     throw new Error('Falha ao comunicar com o servidor para gerar relatório.');
+  },
+
+  async getAdsStatus(): Promise<AdsConnectionStatusResponse> {
+    const data = await safeApiCall<AdsConnectionStatusResponse>('/api/settings/ads-status', {
+      method: 'GET'
+    });
+    if (data) {
+      return data;
+    }
+    // Fallback if network issue or cold start
+    return {
+      isAuthenticated: false,
+      googleAds: {
+        isConfigured: false,
+        status: 'disconnected',
+        source: 'none',
+        details: {
+          developerTokenPresent: false,
+          clientIdPresent: false,
+          clientSecretPresent: false,
+          customerIdPresent: false
+        },
+        lastConfiguredAt: null
+      },
+      metaAds: {
+        isConfigured: false,
+        status: 'disconnected',
+        source: 'none',
+        details: {
+          clientIdPresent: false,
+          clientSecretPresent: false,
+          accessTokenPresent: false,
+          adAccountIdPresent: false
+        },
+        lastConfiguredAt: null
+      }
+    };
+  },
+
+  async saveAdsCredentials(
+    platform: 'google-ads' | 'meta-ads',
+    credentials: Record<string, string>
+  ): Promise<{ success: boolean; message: string }> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
+    const res = await fetch('/api/settings/ads-credentials', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ platform, credentials })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Falha ao salvar credenciais.');
+    }
+    return data;
+  },
+
+  async clearAdsCredentials(platform: 'google-ads' | 'meta-ads'): Promise<{ success: boolean; message: string }> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
+    const res = await fetch('/api/settings/ads-credentials', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ platform })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Falha ao remover credenciais.');
+    }
+    return data;
+  },
+
+  async testAdsConnection(
+    platform: 'google-ads' | 'meta-ads',
+    credentials?: Record<string, string>
+  ): Promise<{ success: boolean; latencyMs?: number; message: string; error?: string }> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
+    const res = await fetch('/api/settings/ads-test-connection', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ platform, credentials })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        success: false,
+        message: data.error || 'Falha no teste de conexão.',
+        error: data.error
+      };
+    }
+    return data;
   }
 };

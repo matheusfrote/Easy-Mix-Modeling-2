@@ -6,18 +6,18 @@ export class MetaAdsConnector extends BaseConnector {
   name = 'Meta Ads';
 
   async authenticate(credentials: any): Promise<boolean> {
-    if (!process.env.META_CLIENT_ID || !process.env.META_CLIENT_SECRET) {
-      throw new Error('Requer configuração. Defina as credenciais da Meta no .env');
-    }
-    // In production, validate user access token via Meta Graph API (/me)
-    if (!credentials.accessToken) {
-      throw new Error('Missing Meta access token');
+    const clientId = credentials?.clientId || process.env.META_CLIENT_ID;
+    const clientSecret = credentials?.clientSecret || process.env.META_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      throw new Error('Requer configuração. Defina as credenciais da Meta nas Configurações ou no .env');
     }
     return true;
   }
 
   async extract(config: SyncConfig): Promise<any[]> {
-    if (!process.env.META_CLIENT_ID) {
+    const clientId = process.env.META_CLIENT_ID;
+    if (!clientId) {
       throw new Error('Requer configuração. Integração com Meta Ads não está configurada.');
     }
     // Real implementation would call Graph API

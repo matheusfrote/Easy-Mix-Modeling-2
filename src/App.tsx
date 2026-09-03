@@ -356,7 +356,11 @@ export default function App() {
       setCurrentView('dashboard');
     } catch (err: any) {
       console.error('Error fitting model:', err);
-      showToast(`Erro ao rodar modelo: ${err.message || 'Verifique os dados'}`);
+      const isUnavailable = err.code === 'MERIDIAN_UNAVAILABLE' || err.status === 503;
+      const msg = isUnavailable
+        ? `Google Meridian (503): ${err.message || 'O microserviço econométrico não está ativo.'}`
+        : `Erro ao processar modelo: ${err.message || 'Verifique os dados e parâmetros.'}`;
+      showToast(msg);
     } finally {
       setIsModelRunning(false);
     }

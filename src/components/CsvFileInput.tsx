@@ -82,13 +82,26 @@ export const CsvFileInput: React.FC<CsvFileInputProps> = ({
           const workbook = XLSX.read(buffer, { type: 'array' });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
-          const jsonData = XLSX.utils.sheet_to_json<DataRow>(worksheet);
+          const rawJson = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet);
 
-          if (!jsonData || jsonData.length === 0) {
+          if (!rawJson || rawJson.length === 0) {
             throw new Error('A planilha XLSX selecionada está vazia ou ilegível na primeira aba.');
           }
 
-          const response = await apiClient.uploadData(jsonData, filename);
+          // Defensive sanitization: neutralizes prototype pollution (GHSA-4r6h-8v6p-xvw6)
+          const sanitizedRows: DataRow[] = rawJson.map(row => {
+            const cleanObj: DataRow = {};
+            for (const key of Object.keys(row)) {
+              const lowerKey = key.trim().toLowerCase();
+              if (lowerKey === '__proto__' || lowerKey === 'constructor' || lowerKey === 'prototype') {
+                continue;
+              }
+              cleanObj[key] = row[key];
+            }
+            return cleanObj;
+          });
+
+          const response = await apiClient.uploadData(sanitizedRows, filename);
           onUploadSuccess(response);
         } else {
           // CSV Parsing with PapaParse

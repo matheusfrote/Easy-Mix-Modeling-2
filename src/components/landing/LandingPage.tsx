@@ -5,7 +5,6 @@ import { ProblemSolutionSection } from './ProblemSolutionSection';
 import { FeaturesSection } from './FeaturesSection';
 import { HowItWorksSection } from './HowItWorksSection';
 import { SocialProofSection } from './SocialProofSection';
-import { PricingSection } from './PricingSection';
 import { FaqSection } from './FaqSection';
 import { LandingFooter } from './LandingFooter';
 import { AuthModal } from '../auth/AuthModal';
@@ -22,7 +21,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   theme,
   onToggleTheme
 }) => {
-  const { isAuthenticated, updateUserPlan } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
 
@@ -32,12 +31,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   const handleOpenRegister = () => {
-    setAuthMode('register');
-    setIsAuthModalOpen(true);
-  };
-
-  const handleSelectPlan = (plan: 'starter' | 'pro' | 'enterprise') => {
-    updateUserPlan(plan);
     setAuthMode('register');
     setIsAuthModalOpen(true);
   };
@@ -81,9 +74,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
       {/* Social Proof & Credibility */}
       <SocialProofSection />
-
-      {/* Pricing Table */}
-      <PricingSection onSelectPlan={handleSelectPlan} />
 
       {/* FAQ */}
       <FaqSection />

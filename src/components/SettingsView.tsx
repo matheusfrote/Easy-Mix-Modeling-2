@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { User, Building, CreditCard, Lock, Globe, Bell, FileText, Check, AlertCircle } from 'lucide-react';
+import { User, Building, CreditCard, Lock, Globe, Bell, FileText, Check, AlertCircle, Radio } from 'lucide-react';
+import { AdsIntegrationStatus } from './settings/AdsIntegrationStatus';
 
 export const SettingsView: React.FC = () => {
   const [isLoadingBilling, setIsLoadingBilling] = useState(true);
@@ -40,6 +41,10 @@ export const SettingsView: React.FC = () => {
             <a href="#billing" className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800/50 transition-colors">
               <CreditCard className="w-4 h-4" />
               Faturamento & Plano
+            </a>
+            <a href="#ads-integrations" className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800/50 transition-colors">
+              <Radio className="w-4 h-4" />
+              Conexões de Anúncios
             </a>
             <a href="#preferences" className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800/50 transition-colors">
               <Globe className="w-4 h-4" />
@@ -197,6 +202,9 @@ export const SettingsView: React.FC = () => {
               )}
             </div>
           </section>
+
+          {/* Ads Integrations Status & Credentials Configuration */}
+          <AdsIntegrationStatus />
 
           {/* Preferences Section */}
           <section id="preferences" className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">

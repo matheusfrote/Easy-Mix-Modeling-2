@@ -241,7 +241,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => handleItemClick('landing')}
             className="w-full py-2 px-3 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-between transition-colors border border-slate-700/50"
           >
-            <span>Landing Page & Planos</span>
+            <span>Landing Page</span>
             <span className="text-[10px] text-blue-400 font-bold">Ver &rarr;</span>
           </button>
           <div className="flex items-center justify-between pt-1">

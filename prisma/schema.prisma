@@ -1,0 +1,236 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  plan        String   @default("starter")
+  status      String   @default("active")
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships            Membership[]
+  datasets               Dataset[]
+  datasetColumns         DatasetColumn[]
+  modelExecutions        ModelExecution[]
+  modelResults           ModelResult[]
+  budgetScenarios        BudgetScenario[]
+  integrationCredentials IntegrationCredential[]
+  auditLogs              AuditLog[]
+
+  @@index([deletedAt])
+  @@map("tenants")
+}
+
+model User {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  name        String?
+  avatarUrl   String?
+  googleId    String?   @unique
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  memberships Membership[]
+  auditLogs   AuditLog[]
+
+  @@index([email])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Membership {
+  id        String    @id @default(uuid())
+  tenantId  String
+  userId    String
+  role      Role      @default(ANALYST)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([role])
+  @@map("memberships")
+}
+
+model Dataset {
+  id             String    @id @default(uuid())
+  tenantId       String
+  name           String
+  filename       String
+  rowCount       Int       @default(0)
+  columnCount    Int       @default(0)
+  status         String    @default("ready")
+  readinessScore Float?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  columns        DatasetColumn[]
+  modelExecutions ModelExecution[]
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@map("datasets")
+}
+
+model DatasetColumn {
+  id           String   @id @default(uuid())
+  datasetId    String
+  tenantId     String
+  name         String
+  inferredRole String   @default("ignored")
+  channelName  String?
+  channelType  String?
+  dataType     String   @default("numeric")
+  nullCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  dataset Dataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([datasetId])
+  @@index([tenantId])
+  @@map("dataset_columns")
+}
+
+model ModelExecution {
+  id           String          @id @default(uuid())
+  tenantId     String
+  datasetId    String?
+  status       ExecutionStatus @default(PENDING)
+  engine       String          @default("google-meridian")
+  config       Json
+  errorMessage String?         @db.Text
+  startedAt    DateTime?
+  completedAt  DateTime?
+  deletedAt    DateTime?
+  createdAt    DateTime        @default(now())
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dataset Dataset?     @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+  result  ModelResult?
+  scenarios BudgetScenario[]
+
+  @@index([tenantId])
+  @@index([datasetId])
+  @@index([status])
+  @@map("model_executions")
+}
+
+model ModelResult {
+  id              String    @id @default(uuid())
+  tenantId        String
+  executionId     String    @unique
+  rSquared        Float?
+  mape            Float?
+  rmse            Float?
+  rHatMax         Float?
+  essMin          Float?
+  isConverged     Boolean   @default(false)
+  blendedRoi      Float?
+  blendedRoas     Float?
+  totalSpend      Float?
+  totalKpi        Float?
+  channelsSummary Json
+  responseCurves  Json?
+  diagnosticsJson Json?
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  execution ModelExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("model_results")
+}
+
+model BudgetScenario {
+  id           String    @id @default(uuid())
+  tenantId     String
+  executionId  String?
+  name         String
+  targetBudget Float
+  projectedKpi Float
+  blendedRoi   Float
+  allocations  Json
+  constraints  Json?
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  execution ModelExecution? @relation(fields: [executionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("budget_scenarios")
+}
+
+model IntegrationCredential {
+  id            String    @id @default(uuid())
+  tenantId      String
+  platform      String
+  encryptedData String    @db.Text
+  keyId         String    @default("v1")
+  status        String    @default("configured")
+  lastTestedAt  DateTime?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, platform])
+  @@index([tenantId])
+  @@map("integration_credentials")
+}
+
+model AuditLog {
+  id             String    @id @default(uuid())
+  tenantId       String?
+  userId         String?
+  sessionId      String?
+  action         String
+  ip             String
+  path           String?
+  method         String?
+  details        Json?
+  retentionUntil DateTime?
+  createdAt      DateTime  @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

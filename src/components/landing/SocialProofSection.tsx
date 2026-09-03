@@ -22,9 +22,9 @@ export const SocialProofSection: React.FC = () => {
       detail: 'Detectando saturação precoce de canais de topo de funil'
     },
     {
-      value: '100%',
-      label: 'Imunidade a Cookies',
-      detail: 'Séries temporais agregadas em conformidade com a LGPD'
+      value: 'Cookieless',
+      label: 'Privacidade Nativa',
+      detail: 'Séries temporais agregadas sem necessidade de cookies de terceiros'
     },
     {
       value: '70+',

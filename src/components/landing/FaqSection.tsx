@@ -13,7 +13,7 @@ export const FaqSection: React.FC = () => {
     {
       question: 'Preciso instalar códigos, pixels de rastreamento ou tags no meu site?',
       answer:
-        'Não! O MMM é 100% livre de cookies (cookieless) e não depende de rastreamento no navegador do usuário. A modelagem é realizada exclusivamente com dados agregados de investimentos, impressões/cliques e vendas por período (ex: granularidade semanal). Isso garante total imunidade a bloqueadores de anúncios e conformidade com a LGPD e GDPR.'
+        'Não! O MMM opera de forma cookieless e não depende de rastreamento no navegador do usuário. A modelagem é realizada exclusivamente com séries temporais agregadas de investimentos e vendas por período (ex: granularidade semanal), respeitando princípios de privacidade alinhados à LGPD e GDPR.'
     },
     {
       question: 'Qual é a quantidade mínima de dados históricos necessária?',

@@ -279,7 +279,7 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <div className="flex items-center gap-2">
                       <Globe className="w-4 h-4 text-blue-500" />
-                      <span>Ver Landing Page & Planos</span>
+                      <span>Ver Landing Page</span>
                     </div>
                     <span className="text-[10px] text-slate-400 group-hover:text-blue-500">&rarr;</span>
                   </button>

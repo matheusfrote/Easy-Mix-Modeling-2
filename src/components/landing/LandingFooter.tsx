@@ -27,7 +27,7 @@ export const LandingFooter: React.FC = () => {
             </p>
             <div className="flex items-center gap-2 text-[11px] text-slate-500">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Conformidade 100% LGPD e GDPR (Zero Pixels)</span>
+              <span>Privacidade por Design (Séries Temporais Agregadas)</span>
             </div>
           </div>
 
@@ -124,7 +124,7 @@ export const LandingFooter: React.FC = () => {
                     setActiveModal({
                       title: 'Política de Privacidade',
                       content:
-                        'A plataforma Easy Mix Modeling opera sob rigorosa conformidade com a LGPD e GDPR. A metodologia de Marketing Mix Modeling (MMM) utiliza exclusivamente dados agregados de investimentos e métricas de desempenho, sem coletar identificadores pessoais de consumidores finais (Zero Cookies).'
+                        'A plataforma Easy Mix Modeling adota princípios de privacidade por design alinhados com as diretrizes da LGPD e GDPR. A metodologia de Marketing Mix Modeling (MMM) analisa dados agregados de investimentos e métricas de desempenho em séries temporais, sem a necessidade de coletar dados pessoais individuais de navegação de consumidores.'
                     })
                   }
                   className="hover:text-white transition-colors text-left cursor-pointer"

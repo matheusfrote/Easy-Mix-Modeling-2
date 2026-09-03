@@ -6,18 +6,18 @@ export class GoogleAdsConnector extends BaseConnector {
   name = 'Google Ads';
 
   async authenticate(credentials: any): Promise<boolean> {
-    if (!process.env.GOOGLE_ADS_DEVELOPER_TOKEN || !process.env.GOOGLE_ADS_CLIENT_ID) {
-      throw new Error('Requer configuração. Defina as credenciais do Google Ads no .env');
+    const devToken = credentials?.developerToken || process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    const clientId = credentials?.clientId || process.env.GOOGLE_ADS_CLIENT_ID;
+
+    if (!devToken || !clientId) {
+      throw new Error('Requer configuração. Defina as credenciais do Google Ads nas Configurações ou no .env');
     }
-    // In production, exchange auth code for refresh token, validate via Google Ads API
-    if (!credentials.oauthToken) {
-      throw new Error('Missing Google Ads OAuth credentials');
-    }
-    return true; // We assume true if env is set for now, but no fake auth allowed.
+    return true;
   }
 
   async extract(config: SyncConfig): Promise<any[]> {
-    if (!process.env.GOOGLE_ADS_DEVELOPER_TOKEN) {
+    const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    if (!devToken) {
       throw new Error('Requer configuração. Integração com Google Ads não está configurada.');
     }
     

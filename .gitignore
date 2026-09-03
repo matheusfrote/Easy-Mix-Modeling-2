@@ -6,3 +6,14 @@ coverage/
 *.log
 .env*
 !.env.example
+node-compile-cache/
+tsx-0/
+.cache/
+*.tmp
+.ccb*
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/

@@ -22,7 +22,10 @@ export type AuditAction =
   | 'CONNECTOR_SYNC'
   | 'RATE_LIMIT_EXCEEDED'
   | 'SUSPICIOUS_INPUT_BLOCKED'
-  | 'MCMC_BOUNDS_CLAMPED';
+  | 'MCMC_BOUNDS_CLAMPED'
+  | 'ADS_CREDENTIALS_UPDATED'
+  | 'ADS_CREDENTIALS_REMOVED'
+  | 'ADS_CONNECTION_TESTED';
 
 export interface AuditLogEntry {
   timestamp: string;
@@ -43,12 +46,19 @@ const SENSITIVE_KEYS = new Set([
   'credential',
   'secret',
   'accesstoken',
+  'access_token',
   'refreshtoken',
+  'refresh_token',
+  'developertoken',
+  'developer_token',
+  'clientsecret',
+  'client_secret',
+  'appsecret',
+  'app_secret',
   'authorization',
   'bearer',
   'api_key',
   'apikey',
-  'client_secret',
   'cookie',
   'session',
   'creditcard',

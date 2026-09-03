@@ -27,6 +27,24 @@ export interface UserSession {
   lastActiveAt: number;
 }
 
+export interface AdsCredentialsState {
+  googleAds?: {
+    developerToken?: string;
+    clientId?: string;
+    clientSecret?: string;
+    customerId?: string;
+    refreshToken?: string;
+    configuredAt: number;
+  };
+  metaAds?: {
+    clientId?: string;
+    clientSecret?: string;
+    accessToken?: string;
+    adAccountId?: string;
+    configuredAt: number;
+  };
+}
+
 export interface WorkspaceState {
   dataset: {
     rows: DataRow[];
@@ -36,6 +54,7 @@ export interface WorkspaceState {
   } | null;
   activeModel: MeridianModelResults | null;
   modelConfig: MeridianModelConfig | null;
+  adsCredentials?: AdsCredentialsState;
   lastUpdated: number;
 }
 
@@ -182,6 +201,66 @@ class SessionManager {
     };
 
     return (roleHierarchy[session.role] || 0) >= (roleHierarchy[requiredRole] || 0);
+  }
+
+  /**
+   * Retrieves ads credentials for the current workspace
+   */
+  getAdsCredentials(session: UserSession | null): AdsCredentialsState {
+    const ws = this.getWorkspace(session);
+    if (!ws.adsCredentials) {
+      ws.adsCredentials = {};
+    }
+    return ws.adsCredentials;
+  }
+
+  /**
+   * Updates ads credentials for the current session workspace
+   */
+  setAdsCredentials(
+    session: UserSession | null,
+    platform: 'google-ads' | 'meta-ads',
+    credentials: any
+  ): void {
+    const ws = this.getWorkspace(session);
+    if (!ws.adsCredentials) {
+      ws.adsCredentials = {};
+    }
+
+    if (platform === 'google-ads') {
+      ws.adsCredentials.googleAds = {
+        developerToken: credentials.developerToken || ws.adsCredentials.googleAds?.developerToken,
+        clientId: credentials.clientId || ws.adsCredentials.googleAds?.clientId,
+        clientSecret: credentials.clientSecret || ws.adsCredentials.googleAds?.clientSecret,
+        customerId: credentials.customerId || ws.adsCredentials.googleAds?.customerId,
+        refreshToken: credentials.refreshToken || ws.adsCredentials.googleAds?.refreshToken,
+        configuredAt: Date.now()
+      };
+    } else if (platform === 'meta-ads') {
+      ws.adsCredentials.metaAds = {
+        clientId: credentials.clientId || ws.adsCredentials.metaAds?.clientId,
+        clientSecret: credentials.clientSecret || ws.adsCredentials.metaAds?.clientSecret,
+        accessToken: credentials.accessToken || ws.adsCredentials.metaAds?.accessToken,
+        adAccountId: credentials.adAccountId || ws.adsCredentials.metaAds?.adAccountId,
+        configuredAt: Date.now()
+      };
+    }
+    ws.lastUpdated = Date.now();
+  }
+
+  /**
+   * Clears ads credentials for a platform in the workspace
+   */
+  removeAdsCredentials(session: UserSession | null, platform: 'google-ads' | 'meta-ads'): void {
+    const ws = this.getWorkspace(session);
+    if (!ws.adsCredentials) return;
+
+    if (platform === 'google-ads') {
+      delete ws.adsCredentials.googleAds;
+    } else if (platform === 'meta-ads') {
+      delete ws.adsCredentials.metaAds;
+    }
+    ws.lastUpdated = Date.now();
   }
 
   private cleanupExpiredSessions(): void {
