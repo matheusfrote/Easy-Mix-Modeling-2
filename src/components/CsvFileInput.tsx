@@ -64,6 +64,13 @@ export const CsvFileInput: React.FC<CsvFileInputProps> = ({
         return;
       }
 
+      // Max file size limit to prevent client & memory exhaustion DoS (15 MB)
+      const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        setErrorMessage('O arquivo excede o limite máximo permitido de 15 MB. Por favor, utilize um arquivo menor.');
+        return;
+      }
+
       setIsProcessing(true);
       setErrorMessage(null);
       setLastUploadedFileName(filename);

@@ -40,7 +40,19 @@ let localModelResultsCache: MeridianModelResults | null = null;
 // Robust helper to perform safe JSON API requests and prevent "Unexpected token < in JSON at position 0"
 async function safeApiCall<T>(url: string, options?: RequestInit): Promise<T | null> {
   try {
-    const res = await fetch(url, options);
+    const token = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_auth_token') : null;
+    const headers: Record<string, string> = {
+      ...(options?.headers as Record<string, string> || {})
+    };
+
+    if (token && !headers['Authorization']) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(url, {
+      ...options,
+      headers
+    });
     if (!res.ok) {
       return null;
     }

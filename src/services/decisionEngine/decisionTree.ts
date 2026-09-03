@@ -47,11 +47,11 @@ export function evaluateChannelDecisionTree(
   if (isInsufficientSpend) {
     reasonCodes.push('INSUFFICIENT_DATA');
     return {
-      decision: 'NO_CONCLUSION',
+      decision: 'INVESTIGATE',
       reasonCodes,
       ruleTriggered: 'INSUFFICIENT_HISTORICAL_SPEND',
       confidenceAssessment: 'Volume de investimento histórico muito baixo para extrapolação confiável da curva de saturação.',
-      suggestedActionRationale: 'Dados limitados, sem conclusão. Manter monitoramento ou realizar teste controlado para colher dados suficientes de tração.'
+      suggestedActionRationale: 'Dados limitados. Manter monitoramento ou investigar para colher dados suficientes de tração.'
     };
   }
 

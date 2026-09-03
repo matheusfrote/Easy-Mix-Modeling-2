@@ -10,6 +10,16 @@ import {
 } from './geminiHandler';
 import { ColumnMapping, MeridianModelConfig, MeridianModelResults } from '../types/mmm';
 import { mmmServiceClient } from './services/mmmService';
+import { authRateLimiter, computeRateLimiter, uploadRateLimiter } from './security/rateLimiter';
+import { sessionManager, UserSession, WorkspaceState } from './security/sessionManager';
+import {
+  sanitizeFilename,
+  sanitizeRowsForSpreadsheet,
+  validateAndClampMcmcConfig,
+  sanitizeAiPromptInput
+} from './security/inputSanitizer';
+import { auditLogger } from './security/auditLogger';
+import { verifyGoogleIdToken } from './security/googleAuth';
 
 /**
  * Formats Bayesian diagnostics ensuring that any non-computed or pending metrics
@@ -51,110 +61,240 @@ function formatDiagnosticsWithFallbacks(diag: any) {
   };
 }
 
-// In-memory session store for current dataset & model (ready for Cloud Storage / BigQuery)
-interface AppState {
-  dataset: {
-    rows: DataRow[];
-    columns: string[];
-    mappings: ColumnMapping[];
-  } | null;
-  activeModel: MeridianModelResults | null;
-  modelConfig: MeridianModelConfig | null;
-}
-
-// Initialize empty state
-const state: AppState = {
-  dataset: null,
-  activeModel: null,
-  modelConfig: null
-};
-
-// Initial model setup without auto-fitting
-const initialModelConfig: MeridianModelConfig = {
-  dateColumn: 'date',
-  kpiColumn: 'revenue',
-  mediaChannels: [],
-  controlColumns: [],
-  seasonalityFourierTerms: 2,
-  mcmcChains: 4,
-  mcmcDraws: 1000,
-  mcmcWarmup: 500,
-  targetKpiType: 'revenue',
-  priors: {}
-};
-
-try {
-  state.modelConfig = initialModelConfig;
-  state.activeModel = null;
-} catch (e) {
-  console.error('Initial setup warning:', e);
+/**
+ * Extracts session token from HTTP Authorization header
+ */
+function extractBearerToken(headers?: Record<string, any>): string | null {
+  if (!headers) return null;
+  const auth = headers['authorization'] || headers['Authorization'];
+  if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
+    return auth.slice(7).trim();
+  }
+  return null;
 }
 
 export async function handleApiRequest(
   path: string,
   method: string,
-  body: any
+  body: any,
+  headers?: Record<string, any>,
+  clientIp = '127.0.0.1'
 ): Promise<{ status: number; data: any }> {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
   try {
-    // 0. Health Check
+    // 0. Extract Session & Isolated Tenant Workspace
+    const token = extractBearerToken(headers);
+    const session: UserSession | null = sessionManager.getSession(token || undefined);
+    const workspace: WorkspaceState = sessionManager.getWorkspace(session);
+
+    // 1. Health Check (Rule 39: Does not leak python version, internal paths, or env secrets)
     if (path === '/api/health' && method === 'GET') {
       return {
         status: 200,
-        data: { status: 'ok', timestamp: new Date().toISOString() }
+        data: {
+          status: 'ok',
+          timestamp: new Date().toISOString()
+        }
       };
     }
 
-    // 1. (Removed Synthetic Dataset)
+    // 2. Authentication: Google OAuth 2.0 (Strict Cryptographic Verification)
+    if (path === '/api/auth/google' && method === 'POST') {
+      const authLimit = authRateLimiter.check(clientIp);
+      if (!authLimit.allowed) {
+        return {
+          status: 429,
+          data: {
+            code: 'AUTH_RATE_LIMIT',
+            error: 'Muitas tentativas de login. Aguarde 15 minutos.'
+          }
+        };
+      }
 
-    // 2. Upload / Parse Dataset
+      const { credential } = body || {};
+      if (!credential || typeof credential !== 'string') {
+        return { status: 401, data: { code: 'INVALID_CREDENTIAL', error: 'Token de autenticação não fornecido.' } };
+      }
+
+      let profile;
+      try {
+        profile = await verifyGoogleIdToken(credential);
+      } catch (err: any) {
+        auditLogger.log('AUTH_LOGIN_FAILURE', {
+          ip: clientIp,
+          path,
+          method,
+          details: { error: err.message }
+        });
+        return {
+          status: 401,
+          data: {
+            code: 'AUTH_FAILED',
+            error: 'Falha na validação do token Google.'
+          }
+        };
+      }
+
+      // Create cryptographically secure session
+      const newSession = sessionManager.createSession({
+        userId: `usr_${profile.googleId}`,
+        email: profile.email,
+        name: profile.name,
+        company: profile.company || 'Empresa',
+        avatar: profile.picture,
+        role: 'ANALYST',
+        plan: 'pro'
+      });
+
+      authRateLimiter.reset(clientIp);
+
+      return {
+        status: 200,
+        data: {
+          success: true,
+          token: newSession.token,
+          user: {
+            id: newSession.userId,
+            name: newSession.name,
+            email: newSession.email,
+            company: newSession.company,
+            role: newSession.role,
+            plan: newSession.plan,
+            avatar: newSession.avatar,
+            provider: 'google',
+            createdAt: new Date(newSession.createdAt).toISOString()
+          }
+        }
+      };
+    }
+
+    // 2.1 Authentication: Current Session Info (/api/auth/me)
+    if (path === '/api/auth/me' && method === 'GET') {
+      if (!session) {
+        return {
+          status: 200,
+          data: { authenticated: false, user: null }
+        };
+      }
+
+      return {
+        status: 200,
+        data: {
+          authenticated: true,
+          user: {
+            id: session.userId,
+            name: session.name,
+            email: session.email,
+            company: session.company,
+            role: session.role,
+            plan: session.plan,
+            avatar: session.avatar,
+            provider: 'google',
+            createdAt: new Date(session.createdAt).toISOString()
+          }
+        }
+      };
+    }
+
+    // 2.2 Authentication: Logout (/api/auth/logout)
+    if (path === '/api/auth/logout' && method === 'POST') {
+      if (token) {
+        sessionManager.revokeSession(token);
+      }
+      return {
+        status: 200,
+        data: { success: true, message: 'Sessão encerrada com sucesso.' }
+      };
+    }
+
+    // 3. Upload Dataset (Granular Size Limits + Path Traversal & Formula Injection Neutralization)
     if (path === '/api/upload' && method === 'POST') {
-      const { rows, filename } = body;
+      const uploadCheck = uploadRateLimiter.check(clientIp);
+      if (!uploadCheck.allowed) {
+        return {
+          status: 429,
+          data: { code: 'RATE_LIMIT', error: 'Limite de uploads atingido. Aguarde antes de enviar novo arquivo.' }
+        };
+      }
+
+      const { rows, filename } = body || {};
       if (!rows || !Array.isArray(rows) || rows.length === 0) {
         return { status: 400, data: { error: 'Arquivo inválido ou sem registros legíveis.' } };
       }
 
+      // Hard row count limit (10,000 rows max to prevent DoS)
+      if (rows.length > 10000) {
+        return {
+          status: 400,
+          data: { error: 'O arquivo excede o limite máximo permitido de 10.000 linhas por dataset.' }
+        };
+      }
+
       // Sanitize columns and rows
-      const cols = Object.keys(rows[0]).map(c => c.trim()).filter(Boolean);
+      const rawCols = Object.keys(rows[0] || {}).map(c => String(c).trim()).filter(Boolean);
+      if (rawCols.length > 60) {
+        return {
+          status: 400,
+          data: { error: 'O arquivo excede o limite máximo permitido de 60 colunas.' }
+        };
+      }
+
+      // Neutralize CSV / Spreadsheet Formula Injection (CWE-1236)
       const sanitizedRows = rows.map((r: any) => {
         const clean: DataRow = {};
-        for (const c of cols) {
-          clean[c] = r[c];
+        for (const c of rawCols) {
+          const val = r[c];
+          clean[c] = typeof val === 'string' && ['=', '+', '-', '@', '\t', '\r'].includes(val.trim()[0])
+            ? `'${val.trim()}`
+            : val;
         }
         return clean;
       });
 
-      const mappings = inferColumnMappings(cols, sanitizedRows);
+      const safeFilename = sanitizeFilename(filename);
+      const mappings = inferColumnMappings(rawCols, sanitizedRows);
       const val = validateDataset(sanitizedRows, mappings);
       const readiness = calculateDataReadinessScore(sanitizedRows, mappings, val);
 
-      state.dataset = {
+      // Store in tenant-isolated workspace state
+      workspace.dataset = {
         rows: sanitizedRows,
-        columns: cols,
-        mappings
+        columns: rawCols,
+        mappings,
+        filename: safeFilename
       };
+      workspace.lastUpdated = Date.now();
+
+      auditLogger.log('DATASET_UPLOAD', {
+        sessionId: session?.sessionId,
+        userId: session?.userId,
+        ip: clientIp,
+        details: { rowCount: sanitizedRows.length, colCount: rawCols.length, filename: safeFilename }
+      });
 
       return {
         status: 200,
         data: {
           rowCount: sanitizedRows.length,
-          columnCount: cols.length,
-          columns: cols,
+          columnCount: rawCols.length,
+          columns: rawCols,
           previewRows: sanitizedRows.slice(0, 10),
           mappings,
           validation: val,
           readiness,
-          filename: filename || 'uploaded_data.csv'
+          filename: safeFilename
         }
       };
     }
 
-    // 3. Validate Dataset
+    // 4. Validate Dataset
     if (path === '/api/validate' && method === 'POST') {
-      const { rows, mappings } = body;
-      const targetRows = rows || state.dataset?.rows;
-      const targetMappings = mappings || state.dataset?.mappings;
+      const { rows, mappings } = body || {};
+      const targetRows = rows || workspace.dataset?.rows;
+      const targetMappings = mappings || workspace.dataset?.mappings;
 
-      if (!targetRows) {
+      if (!targetRows || targetRows.length === 0) {
         return { status: 400, data: { error: 'Nenhum dado carregado para validação.' } };
       }
 
@@ -170,23 +310,31 @@ export async function handleApiRequest(
       };
     }
 
-    // 3.1 Sanitize & Auto-Fix Dataset
+    // 4.1 Sanitize & Auto-Fix Dataset
     if (path === '/api/sanitize-data' && method === 'POST') {
-      const { rows, mappings } = body;
-      const targetRows = rows || state.dataset?.rows;
-      const targetMappings = mappings || state.dataset?.mappings;
+      const { rows, mappings } = body || {};
+      const targetRows = rows || workspace.dataset?.rows;
+      const targetMappings = mappings || workspace.dataset?.mappings;
 
       if (!targetRows || !targetMappings) {
         return { status: 400, data: { error: 'Nenhum dado ou mapeamento carregado para saneamento.' } };
       }
 
       const sanitizeResult = sanitizeDataset(targetRows, targetMappings);
-      if (state.dataset) {
-        state.dataset.rows = sanitizeResult.cleanedRows;
+      if (workspace.dataset) {
+        workspace.dataset.rows = sanitizeResult.cleanedRows;
+        workspace.lastUpdated = Date.now();
       }
 
       const val = validateDataset(sanitizeResult.cleanedRows, targetMappings);
       const readiness = calculateDataReadinessScore(sanitizeResult.cleanedRows, targetMappings, val);
+
+      auditLogger.log('DATASET_SANITIZE', {
+        sessionId: session?.sessionId,
+        userId: session?.userId,
+        ip: clientIp,
+        details: { fixedIssuesCount: sanitizeResult.fixedIssues.length }
+      });
 
       return {
         status: 200,
@@ -204,26 +352,35 @@ export async function handleApiRequest(
       };
     }
 
-    // 4. Map Columns
+    // 5. Map Columns
     if (path === '/api/map-columns' && method === 'POST') {
-      const { mappings } = body;
-      if (mappings && state.dataset) {
-        state.dataset.mappings = mappings;
+      const { mappings } = body || {};
+      if (mappings && workspace.dataset) {
+        workspace.dataset.mappings = mappings;
+        workspace.lastUpdated = Date.now();
       }
       return {
         status: 200,
         data: {
           success: true,
-          mappings: state.dataset?.mappings || []
+          mappings: workspace.dataset?.mappings || []
         }
       };
     }
 
-    // 5. Fit Meridian Model (with Python microservice client and native execution fallback)
+    // 6. Fit Meridian Model (MCMC Bounds Clamping + Compute Rate Limiting)
     if ((path === '/api/model' || path === '/api/model/run' || path === '/api/model/fit') && method === 'POST') {
-      const { config, rows } = body;
-      const targetRows = rows || state.dataset?.rows;
-      const modelConfig: MeridianModelConfig = config || state.modelConfig;
+      const computeCheck = computeRateLimiter.check(clientIp);
+      if (!computeCheck.allowed) {
+        return {
+          status: 429,
+          data: { code: 'RATE_LIMIT', error: 'Muitas execuções simultâneas de modelagem. Aguarde um minuto.' }
+        };
+      }
+
+      const { config, rows } = body || {};
+      const targetRows = rows || workspace.dataset?.rows;
+      const modelConfig: MeridianModelConfig = config || workspace.modelConfig;
 
       if (!targetRows || targetRows.length === 0) {
         return { status: 400, data: { error: 'Nenhum dado disponível para execução do modelo.' } };
@@ -232,12 +389,21 @@ export async function handleApiRequest(
         return { status: 400, data: { error: 'Configuração do Meridian inválida: selecione ao menos 1 canal de mídia.' } };
       }
 
-      state.modelConfig = modelConfig;
+      // Enforce server-side parameter bounds to prevent MCMC Resource Exhaustion
+      const { clampedConfig } = validateAndClampMcmcConfig(modelConfig);
+      workspace.modelConfig = clampedConfig;
 
-      // Delegate to the dedicated MMM Python microservice client
+      auditLogger.log('MODEL_RUN_STARTED', {
+        sessionId: session?.sessionId,
+        userId: session?.userId,
+        ip: clientIp,
+        details: { channelsCount: clampedConfig.mediaChannels.length, chains: clampedConfig.mcmcChains, draws: clampedConfig.mcmcDraws }
+      });
+
+      // Delegate to the MMM microservice client
       const pyServiceResponse = await mmmServiceClient.fitModel({
         rows: targetRows,
-        config: modelConfig
+        config: clampedConfig
       });
 
       let results: MeridianModelResults;
@@ -247,23 +413,37 @@ export async function handleApiRequest(
           diagnostics: formatDiagnosticsWithFallbacks(pyServiceResponse.results.diagnostics)
         };
       } else {
-        // Fallback removed as per strict requirement - DO NOT fallback to heuristic/fake modeling
         const errorMsg = pyServiceResponse.errors && pyServiceResponse.errors.length > 0
           ? pyServiceResponse.errors[0].message
-          : 'O serviço Google Meridian falhou ao modelar os dados.';
-        
+          : 'O serviço de modelagem econométrica não pôde concluir o ajuste.';
+
+        auditLogger.log('MODEL_RUN_FAILED', {
+          sessionId: session?.sessionId,
+          userId: session?.userId,
+          ip: clientIp,
+          details: { error: errorMsg }
+        });
+
         return {
           status: 503,
           data: {
             code: 'MERIDIAN_UNAVAILABLE',
-            message: 'O serviço de modelagem não está disponível ou o modelo falhou.',
+            message: 'O serviço de modelagem falhou ao processar a cadeia MCMC.',
             details: errorMsg,
             retryable: true
           }
         };
       }
 
-      state.activeModel = results;
+      workspace.activeModel = results;
+      workspace.lastUpdated = Date.now();
+
+      auditLogger.log('MODEL_RUN_COMPLETED', {
+        sessionId: session?.sessionId,
+        userId: session?.userId,
+        ip: clientIp,
+        details: { modelId: results.modelId }
+      });
 
       return {
         status: 200,
@@ -271,23 +451,22 @@ export async function handleApiRequest(
       };
     }
 
-    // 5.1 Get Model Diagnostics & Posterior Metrics (Google Meridian & ArviZ format)
+    // 6.1 Get Model Diagnostics
     if (path === '/api/model/diagnostics' && method === 'GET') {
-      if (!state.activeModel) {
+      if (!workspace.activeModel) {
         return {
           status: 404,
           data: { error: 'Nenhum modelo Meridian em execução para exibição de diagnósticos.' }
         };
       }
 
-      // Query diagnostics from microservice client
       const pyDiagnostics = await mmmServiceClient.getDiagnostics();
 
       return {
         status: 200,
         data: {
-          diagnostics: formatDiagnosticsWithFallbacks(state.activeModel.diagnostics),
-          posteriorMetrics: state.activeModel.diagnostics?.posteriorMetrics || {
+          diagnostics: formatDiagnosticsWithFallbacks(workspace.activeModel.diagnostics),
+          posteriorMetrics: workspace.activeModel.diagnostics?.posteriorMetrics || {
             looCv: 'N/A',
             waic: 'N/A',
             divergencesCount: 'N/A'
@@ -297,9 +476,9 @@ export async function handleApiRequest(
       };
     }
 
-    // 6. Get Model Status / Results
+    // 6.2 Get Model Status / Results
     if ((path === '/api/model/status' || path === '/api/model/results' || path === '/api/model') && method === 'GET') {
-      if (!state.activeModel) {
+      if (!workspace.activeModel) {
         return {
           status: 404,
           data: { status: 'idle', message: 'Nenhum modelo Meridian em execução.' }
@@ -308,36 +487,43 @@ export async function handleApiRequest(
       return {
         status: 200,
         data: {
-          ...state.activeModel,
-          diagnostics: formatDiagnosticsWithFallbacks(state.activeModel.diagnostics)
+          ...workspace.activeModel,
+          diagnostics: formatDiagnosticsWithFallbacks(workspace.activeModel.diagnostics)
         }
       };
     }
 
     // 7. Channel Performance
     if (path === '/api/channel-performance' && method === 'GET') {
-      if (!state.activeModel) {
+      if (!workspace.activeModel) {
         return { status: 404, data: { error: 'Modelo não executado ainda.' } };
       }
       return {
         status: 200,
         data: {
-          channels: state.activeModel.channels,
-          responseCurves: state.activeModel.responseCurves,
-          diagnostics: state.activeModel.diagnostics
+          channels: workspace.activeModel.channels,
+          responseCurves: workspace.activeModel.responseCurves,
+          diagnostics: workspace.activeModel.diagnostics
         }
       };
     }
 
     // 8. Optimize Budget
     if (path === '/api/optimize-budget' && method === 'POST') {
-      const { targetTotalBudget, constraints } = body;
-      if (!state.activeModel) {
+      const { targetTotalBudget, constraints } = body || {};
+      if (!workspace.activeModel) {
         return { status: 400, data: { error: 'Execute o modelo Meridian antes de otimizar o orçamento.' } };
       }
 
-      const budget = Number(targetTotalBudget) || state.activeModel.totalSpend;
-      const optResult = optimizeBudgetMathematical(state.activeModel, budget, constraints);
+      const budget = Number(targetTotalBudget) || workspace.activeModel.totalSpend;
+      const optResult = optimizeBudgetMathematical(workspace.activeModel, budget, constraints);
+
+      auditLogger.log('BUDGET_OPTIMIZED', {
+        sessionId: session?.sessionId,
+        userId: session?.userId,
+        ip: clientIp,
+        details: { targetTotalBudget: budget }
+      });
 
       return {
         status: 200,
@@ -347,40 +533,61 @@ export async function handleApiRequest(
 
     // 9. Simulate Scenario
     if (path === '/api/simulate' && method === 'POST') {
-      const { channelSpends } = body;
-      if (!state.activeModel) {
+      const { channelSpends } = body || {};
+      if (!workspace.activeModel) {
         return { status: 400, data: { error: 'Execute o modelo Meridian antes de simular cenários.' } };
       }
 
-      const sim = simulateScenarioMathematical(state.activeModel, channelSpends || {});
+      const sim = simulateScenarioMathematical(workspace.activeModel, channelSpends || {});
+
+      auditLogger.log('SCENARIO_SIMULATED', {
+        sessionId: session?.sessionId,
+        userId: session?.userId,
+        ip: clientIp
+      });
+
       return {
         status: 200,
         data: sim
       };
     }
 
-    // 10. Generate Automated Insights via Gemini
+    // 10. Generate Automated Insights via Gemini (Compute Rate Limited)
     if (path === '/api/generate-insights' && method === 'POST') {
-      if (!state.activeModel) {
+      const computeCheck = computeRateLimiter.check(clientIp);
+      if (!computeCheck.allowed) {
+        return { status: 429, data: { error: 'Muitas requisições de geração de insights. Aguarde um instante.' } };
+      }
+
+      if (!workspace.activeModel) {
         return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
       }
-      const insights = await generateAutomatedInsights(state.activeModel);
+      const insights = await generateAutomatedInsights(workspace.activeModel);
       return {
         status: 200,
         data: { insights }
       };
     }
 
-    // 11. Generate Budget Explanation via Gemini
+    // 11. Generate Budget Explanation via Gemini (Prompt Injection Sanitized)
     if (path === '/api/budget-explanation' && method === 'POST') {
-      const { optResult, extraQuery } = body;
-      if (!state.activeModel) {
+      const computeCheck = computeRateLimiter.check(clientIp);
+      if (!computeCheck.allowed) {
+        return { status: 429, data: { error: 'Muitas requisições de explicação orçamentária. Aguarde um instante.' } };
+      }
+
+      const { optResult, extraQuery } = body || {};
+      if (!workspace.activeModel) {
         return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
       }
       if (!optResult) {
         return { status: 400, data: { error: 'Nenhum resultado de otimização fornecido.' } };
       }
-      const explanation = await generateBudgetExplanation(state.activeModel, optResult, extraQuery);
+
+      // Mitigate Prompt Injection: sanitize and clamp extraQuery
+      const safeQuery = sanitizeAiPromptInput(extraQuery, 500);
+
+      const explanation = await generateBudgetExplanation(workspace.activeModel, optResult, safeQuery);
       return {
         status: 200,
         data: { explanation }
@@ -389,17 +596,28 @@ export async function handleApiRequest(
 
     // 12. Full Report
     if (path === '/api/report' && method === 'POST') {
-      if (!state.activeModel) {
+      const computeCheck = computeRateLimiter.check(clientIp);
+      if (!computeCheck.allowed) {
+        return { status: 429, data: { error: 'Muitas requisições de relatório. Aguarde um instante.' } };
+      }
+
+      if (!workspace.activeModel) {
         return { status: 400, data: { error: 'Modelo Meridian não disponível.' } };
       }
-      
-      const opt = optimizeBudgetMathematical(state.activeModel, state.activeModel.totalSpend * 1.15);
-      const report = await generateFullReport(state.activeModel, opt);
+
+      const opt = optimizeBudgetMathematical(workspace.activeModel, workspace.activeModel.totalSpend * 1.15);
+      const report = await generateFullReport(workspace.activeModel, opt);
+
+      auditLogger.log('REPORT_GENERATED', {
+        sessionId: session?.sessionId,
+        userId: session?.userId,
+        ip: clientIp
+      });
+
       return { status: 200, data: { report } };
     }
 
-    
-    // 12.1 Connectors API - List
+    // 13. Connectors API - List
     if (path === '/api/connectors/list' && method === 'GET') {
       return {
         status: 200,
@@ -407,10 +625,13 @@ export async function handleApiRequest(
       };
     }
 
-    // 12.2 Connectors API - Auth
+    // 13.1 Connectors API - Auth (Credentials strictly kept server-side)
     if (path === '/api/connectors/auth' && method === 'POST') {
       try {
-        const { connectorId, credentials } = body;
+        const { connectorId, credentials } = body || {};
+        if (!connectorId || typeof connectorId !== 'string') {
+          return { status: 400, data: { error: 'connectorId obrigatório' } };
+        }
         const connector = registry.get(connectorId);
         const result = await connector.authenticate(credentials);
         return {
@@ -425,49 +646,40 @@ export async function handleApiRequest(
       }
     }
 
-    // 12.3 Connectors API - Sync
+    // 13.2 Connectors API - Sync
     if (path === '/api/connectors/sync' && method === 'POST') {
       try {
-        const { connectorId, config } = body;
+        const { connectorId, config } = body || {};
         const connector = registry.get(connectorId);
         const result = await connector.sync(config);
-        
-        if (result.success) {
-          // Merge to unified dataset for MMM
-          if (!state.dataset) {
-             state.dataset = {
-               rows: [],
-               columns: [],
-               mappings: []
-             };
-          }
-          // Normally we'd merge by date and channel. For now we append and sort.
-          // Note: In real app, we handle full union of keys.
-          result.rows.forEach(r => {
-             const anyR = r as any;
-             state.dataset!.rows.push(anyR);
-          });
-          
-          // Re-infer mappings and validation
-          
-          // Re-infer mappings and validation
-          let validation = null;
-          let readiness = null;
-          if (state.dataset.rows.length > 0) {
-            state.dataset.columns = Array.from(new Set(state.dataset.rows.flatMap(Object.keys)));
-            state.dataset.mappings = inferColumnMappings(state.dataset.columns, state.dataset.rows as unknown as DataRow[]);
-            validation = validateDataset(state.dataset.rows as unknown as DataRow[], state.dataset.mappings);
-            readiness = calculateDataReadinessScore(state.dataset.rows as unknown as DataRow[], state.dataset.mappings, validation);
-          }
-          
-          result.dataset = {
-            rows: state.dataset.rows,
-            columns: state.dataset.columns,
-            mappings: state.dataset.mappings,
-            validation,
-            readiness
-          };
 
+        if (result.success) {
+          if (!workspace.dataset) {
+            workspace.dataset = {
+              rows: [],
+              columns: [],
+              mappings: [],
+              filename: 'connector_sync.csv'
+            };
+          }
+
+          // Sanitize incoming rows to prevent Formula Injection
+          const cleanSyncedRows = sanitizeRowsForSpreadsheet(result.rows as any);
+          cleanSyncedRows.forEach(r => workspace.dataset!.rows.push(r as any));
+
+          if (workspace.dataset.rows.length > 0) {
+            workspace.dataset.columns = Array.from(new Set(workspace.dataset.rows.flatMap(Object.keys)));
+            workspace.dataset.mappings = inferColumnMappings(workspace.dataset.columns, workspace.dataset.rows);
+            const val = validateDataset(workspace.dataset.rows, workspace.dataset.mappings);
+            const readiness = calculateDataReadinessScore(workspace.dataset.rows, workspace.dataset.mappings, val);
+            result.dataset = {
+              rows: workspace.dataset.rows,
+              columns: workspace.dataset.columns,
+              mappings: workspace.dataset.mappings,
+              validation: val,
+              readiness
+            };
+          }
         }
 
         return {
@@ -482,94 +694,25 @@ export async function handleApiRequest(
       }
     }
 
-    // 13. Secure Google OAuth Verification (server-side token parsing & validation)
-    if (path === '/api/auth/google' && method === 'POST') {
-      const { credential } = body || {};
-
-      if (!credential) {
-         return { status: 401, data: { error: 'Token não fornecido' } };
-      }
-
-      let email = '';
-      let name = '';
-      let picture = '';
-      let googleId = '';
-      let company = '';
-
-      try {
-        // Parse JWT payload safely on the server
-        const parts = credential.split('.');
-        if (parts.length >= 2) {
-          const base64Url = parts[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = Buffer.from(base64, 'base64').toString('utf8');
-          const payload = JSON.parse(jsonPayload);
-
-          // Verify Google token issuer if present
-          if (payload.iss && !payload.iss.includes('accounts.google.com')) {
-            return { status: 401, data: { error: 'Emissor de token inválido do Google' } };
-          }
-
-          // Verify expiration if present
-          if (payload.exp && payload.exp < Date.now() / 1000) {
-            return { status: 401, data: { error: 'Token do Google expirado' } };
-          }
-
-          if (payload.email) email = payload.email;
-          if (payload.name) name = payload.name;
-          if (payload.picture) picture = payload.picture;
-          if (payload.sub) googleId = payload.sub;
-          if (payload.hd) {
-            company = payload.hd.toUpperCase();
-          } else if (payload.email && payload.email.includes('@')) {
-            const domain = payload.email.split('@')[1];
-            company = domain.split('.')[0].toUpperCase();
-          }
-          
-          if (!email || !googleId) {
-             return { status: 401, data: { error: 'Token inválido: ausência de email ou ID' } };
-          }
-        } else {
-           return { status: 401, data: { error: 'Formato de token inválido' } };
-        }
-      } catch (e: any) {
-        console.warn('Server token decode fallback:', e?.message);
-        return { status: 401, data: { error: 'Falha ao validar token' } };
-      }
-
-      // Return sanitized user object - NEVER expose raw tokens or client secrets
-      const safeUser = {
-        id: `usr_${googleId}`,
-        name: name,
-        email: email.toLowerCase(),
-        company: company || 'Empresa',
-        role: 'Marketing Lead',
-        provider: 'google',
-        plan: 'pro',
-        createdAt: new Date().toISOString(),
-        avatar: picture || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&backgroundColor=3b82f6,6366f1`
-      };
-
-      return {
-        status: 200,
-        data: {
-          success: true,
-          user: safeUser
-        }
-      };
-    }
-
     return {
       status: 404,
-      data: { error: `Rota desconhecida: ${method} ${path}` }
+      data: { code: 'NOT_FOUND', error: `Rota desconhecida: ${method} ${path}` }
     };
   } catch (err: any) {
-    console.error('API Handler Error:', err);
+    auditLogger.log('AUTH_LOGIN_FAILURE', {
+      ip: clientIp,
+      path,
+      method,
+      details: { requestId, error: err?.message || String(err) }
+    });
+
+    // Safe error message without leaking internal server architecture or stack traces
     return {
       status: 500,
       data: {
-        error: 'Falha interna ao processar requisição.',
-        details: err?.message || String(err)
+        code: 'INTERNAL_ERROR',
+        message: 'Falha interna ao processar requisição.',
+        requestId
       }
     };
   }

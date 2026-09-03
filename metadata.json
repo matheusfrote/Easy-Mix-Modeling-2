@@ -1,6 +1,6 @@
 {
   "name": "Easy-Mix-Modeling-4",
-  "description": "Imported from GitHub: matheusfrote/Easy-Mix-Modeling-2",
+  "description": "Plataforma de Marketing Mix Modeling (MMM) com modelagem bayesiana, saturação de Hill, adstock e otimização de verba de mídia.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
