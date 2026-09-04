@@ -160,12 +160,12 @@ export default function App() {
     const hydrateState = async () => {
       try {
         let savedDataset = await localforage.getItem<UploadResponse>('easy_mix_dataset');
-        let savedModelResults = await localforage.getItem<MeridianModelResults>('easy_mix_model_results');
+        const savedModelResults = await localforage.getItem<MeridianModelResults>('easy_mix_model_results');
         const savedView = await localforage.getItem<NavView>('easy_mix_current_view');
         const savedDateRange = await localforage.getItem<DateRangeFilter>('easy_mix_date_range');
 
         // Check if demonstration data should be loaded
-        if (!savedDataset || !savedModelResults) {
+        if (!savedDataset) {
           try {
             const res = await fetch('/demo-data.json');
             if (res.ok) {
@@ -173,10 +173,6 @@ export default function App() {
               if (!savedDataset && demoData.dataset) {
                 savedDataset = demoData.dataset;
                 await localforage.setItem('easy_mix_dataset', savedDataset);
-              }
-              if (!savedModelResults && demoData.modelResults) {
-                savedModelResults = demoData.modelResults;
-                await localforage.setItem('easy_mix_model_results', savedModelResults);
               }
             }
           } catch (e) {

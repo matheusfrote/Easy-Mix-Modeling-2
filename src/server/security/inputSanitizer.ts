@@ -64,7 +64,7 @@ export function sanitizeFilename(rawFilename: string | undefined | null): string
 /**
  * Enforces strict bounds on MCMC configuration to prevent Resource Exhaustion (DoS)
  * Limits:
- * - mcmcChains: [1, 8]
+ * - mcmcChains: [2, 8]
  * - mcmcDraws: [100, 5000]
  * - mcmcWarmup: [50, 2000]
  * - mediaChannels: max 20
@@ -78,8 +78,8 @@ export function validateAndClampMcmcConfig(config: MeridianModelConfig): {
   const clamped: MeridianModelConfig = { ...config };
 
   const chains = Number(config.mcmcChains) || 4;
-  if (chains < 1 || chains > 8) {
-    clamped.mcmcChains = Math.max(1, Math.min(8, chains));
+  if (chains < 2 || chains > 8) {
+    clamped.mcmcChains = Math.max(2, Math.min(8, chains));
     wasModified = true;
   }
 

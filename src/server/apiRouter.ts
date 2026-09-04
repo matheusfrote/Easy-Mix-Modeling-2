@@ -3,8 +3,7 @@ import { calculateDataReadinessScore } from '../services/dataReadiness';
 import { validateDataset, sanitizeDataset, DataRow } from '../services/dataValidator';
 import {
   generateAutomatedInsights,
-  generateBudgetExplanation,
-  generateFullReport
+  generateBudgetExplanation
 } from './geminiHandler';
 import { ColumnMapping, MeridianModelConfig, MeridianModelResults } from '../types/mmm';
 import { mmmServiceClient } from './services/mmmService';
@@ -18,43 +17,56 @@ import {
 } from './security/inputSanitizer';
 import { auditLogger } from './security/auditLogger';
 
-/**
- * Formats Bayesian diagnostics ensuring that any non-computed or pending metrics
- * strictly return 'N/A' rather than arbitrary heuristics or magic numbers.
- */
-function formatDiagnosticsWithFallbacks(diag: any) {
-  if (!diag) return null;
+function finiteNumberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** Preserves real diagnostics and represents unavailable values as null. */
+function formatDiagnostics(diag: any) {
+  if (!diag || typeof diag !== 'object') return null;
   return {
-    rSquared: typeof diag.rSquared === 'number' ? diag.rSquared : 'N/A',
-    bayesianR2: typeof diag.bayesianR2 === 'number' ? diag.bayesianR2 : 'N/A',
-    mape: typeof diag.mape === 'number' ? diag.mape : 'N/A',
-    rmse: typeof diag.rmse === 'number' ? diag.rmse : 'N/A',
-    gelmanRubinRhat: typeof diag.gelmanRubinRhat === 'number' ? diag.gelmanRubinRhat : 'N/A',
-    effectiveSampleSize: typeof diag.effectiveSampleSize === 'number' ? diag.effectiveSampleSize : 'N/A',
-    bulkEss: typeof diag.bulkEss === 'number' ? diag.bulkEss : 'N/A',
-    tailEss: typeof diag.tailEss === 'number' ? diag.tailEss : 'N/A',
-    looCv: typeof diag.looCv === 'number' ? diag.looCv : 'N/A',
-    waic: typeof diag.waic === 'number' ? diag.waic : 'N/A',
-    divergencesCount: typeof diag.divergencesCount === 'number' ? diag.divergencesCount : 'N/A',
-    isConverged: Boolean(diag.isConverged),
-    warnings: Array.isArray(diag.warnings) ? diag.warnings : [],
-    baselineContribution: typeof diag.baselineContribution === 'number' ? diag.baselineContribution : 0,
-    baselineShare: typeof diag.baselineShare === 'number' ? diag.baselineShare : 0,
-    controlsContribution: typeof diag.controlsContribution === 'number' ? diag.controlsContribution : 0,
-    controlsShare: typeof diag.controlsShare === 'number' ? diag.controlsShare : 0,
-    mediaContribution: typeof diag.mediaContribution === 'number' ? diag.mediaContribution : 0,
-    mediaShare: typeof diag.mediaShare === 'number' ? diag.mediaShare : 0,
-    totalObservedKpi: typeof diag.totalObservedKpi === 'number' ? diag.totalObservedKpi : 0,
-    totalPredictedKpi: typeof diag.totalPredictedKpi === 'number' ? diag.totalPredictedKpi : 0,
-    posteriorMetrics: diag.posteriorMetrics || {
-      adstockDecay: {},
-      halfSaturation: {},
-      slope: {},
-      mediaCoefficients: {},
-      looCv: 'N/A',
-      waic: 'N/A'
-    },
-    timeSeriesFit: diag.timeSeriesFit || []
+    ...diag,
+    r2: finiteNumberOrNull(diag.r2),
+    rSquared: finiteNumberOrNull(diag.rSquared),
+    mape: finiteNumberOrNull(diag.mape),
+    wmape: finiteNumberOrNull(diag.wmape),
+    gelmanRubinRhat: finiteNumberOrNull(diag.gelmanRubinRhat),
+    rhat: finiteNumberOrNull(diag.rhat),
+    isConverged: typeof diag.isConverged === 'boolean' ? diag.isConverged : null
+  };
+}
+
+export function attachExposureColumns(
+  config: MeridianModelConfig,
+  mappings: ColumnMapping[] | undefined
+): MeridianModelConfig {
+  const exposures = (mappings || []).filter(mapping =>
+    mapping.mappedType === 'media_impressions' || mapping.mappedType === 'media_clicks'
+  );
+
+  return {
+    ...config,
+    mediaChannels: config.mediaChannels.map(channel => {
+      if (channel.impressionsColumn) return channel;
+
+      const spendMapping = (mappings || []).find(mapping => mapping.columnName === channel.spendColumn);
+      const channelNames = [channel.channelName, spendMapping?.channelName]
+        .filter((value): value is string => Boolean(value))
+        .map(value => value.trim().toLowerCase());
+      const exactMatches = exposures.filter(mapping =>
+        mapping.channelName && channelNames.includes(mapping.channelName.trim().toLowerCase())
+      );
+      const impressionMatches = exactMatches.filter(mapping => mapping.mappedType === 'media_impressions');
+      const exposure = impressionMatches.length === 1
+        ? impressionMatches[0]
+        : exactMatches.length === 1
+          ? exactMatches[0]
+        : config.mediaChannels.length === 1 && exposures.length === 1
+          ? exposures[0]
+          : undefined;
+
+      return exposure ? { ...channel, impressionsColumn: exposure.columnName } : channel;
+    })
   };
 }
 
@@ -284,8 +296,10 @@ export async function handleApiRequest(
         return { status: 400, headers: responseHeaders, data: { error: 'Configuração do Meridian inválida: selecione ao menos 1 canal de mídia.' } };
       }
 
+      const configWithExposures = attachExposureColumns(modelConfig, workspace.dataset?.mappings);
+
       // Enforce server-side parameter bounds to prevent MCMC Resource Exhaustion
-      const { clampedConfig } = validateAndClampMcmcConfig(modelConfig);
+      const { clampedConfig } = validateAndClampMcmcConfig(configWithExposures);
       workspace.modelConfig = clampedConfig;
 
       auditLogger.log('MODEL_RUN_STARTED', {
@@ -301,15 +315,32 @@ export async function handleApiRequest(
       });
 
       let results: MeridianModelResults;
-      if (pyServiceResponse.status === 'success' && pyServiceResponse.results && Array.isArray(pyServiceResponse.results.channels)) {
+      if (
+        pyServiceResponse.status === 'success'
+        && pyServiceResponse.modelId
+        && pyServiceResponse.engine === 'google-meridian'
+        && pyServiceResponse.engineVersion
+        && pyServiceResponse.results
+        && Array.isArray(pyServiceResponse.results.channels)
+      ) {
         results = {
           ...pyServiceResponse.results,
-          diagnostics: formatDiagnosticsWithFallbacks(pyServiceResponse.results.diagnostics)
-        };
+          modelId: pyServiceResponse.modelId,
+          engine: pyServiceResponse.engine,
+          engineVersion: pyServiceResponse.engineVersion,
+          createdAt: new Date().toISOString(),
+          status: 'completed',
+          diagnostics: formatDiagnostics(pyServiceResponse.results.diagnostics),
+          warnings: pyServiceResponse.warnings || []
+        } as MeridianModelResults;
       } else {
-        const errorMsg = pyServiceResponse.errors && pyServiceResponse.errors.length > 0
-          ? pyServiceResponse.errors[0].message
-          : 'O serviço de modelagem econométrica não pôde concluir o ajuste.';
+        const serviceError = pyServiceResponse.errors?.[0];
+        const errorMsg = serviceError?.message || 'O serviço de modelagem econométrica não pôde concluir o ajuste.';
+        const responseStatus = pyServiceResponse.httpStatus
+          || (pyServiceResponse.status === 'validation_error' ? 422
+            : pyServiceResponse.status === 'not_implemented' ? 501
+              : pyServiceResponse.status === 'service_unavailable' ? 503
+                : 500);
 
         auditLogger.log('MODEL_RUN_FAILED', {
           sessionId: sessionId,
@@ -318,13 +349,13 @@ export async function handleApiRequest(
         });
 
         return {
-          status: 503,
+          status: responseStatus,
           headers: responseHeaders,
           data: {
-            code: 'MERIDIAN_UNAVAILABLE',
-            message: 'O serviço de modelagem falhou ao processar a cadeia MCMC.',
-            details: errorMsg,
-            retryable: true
+            code: serviceError?.code || 'MERIDIAN_ERROR',
+            message: errorMsg,
+            stage: serviceError?.stage,
+            retryable: responseStatus === 503
           }
         };
       }
@@ -361,13 +392,9 @@ export async function handleApiRequest(
         status: 200,
         headers: responseHeaders,
         data: {
-          diagnostics: formatDiagnosticsWithFallbacks(workspace.activeModel.diagnostics),
-          posteriorMetrics: workspace.activeModel.diagnostics?.posteriorMetrics || {
-            looCv: 'N/A',
-            waic: 'N/A',
-            divergencesCount: 'N/A'
-          },
-          serviceDiagnostics: pyDiagnostics || { status: 'native_engine', meridianVersion: 'google-meridian' }
+          diagnostics: formatDiagnostics(workspace.activeModel.diagnostics),
+          posteriorMetrics: workspace.activeModel.diagnostics?.posteriorMetrics ?? null,
+          serviceDiagnostics: pyDiagnostics
         }
       };
     }
@@ -386,7 +413,7 @@ export async function handleApiRequest(
         headers: responseHeaders,
         data: {
           ...workspace.activeModel,
-          diagnostics: formatDiagnosticsWithFallbacks(workspace.activeModel.diagnostics)
+          diagnostics: formatDiagnostics(workspace.activeModel.diagnostics)
         }
       };
     }
@@ -409,74 +436,19 @@ export async function handleApiRequest(
 
     // 8. Optimize Budget
     if (path === '/api/optimize-budget' && method === 'POST') {
-      const { targetTotalBudget, constraints } = body || {};
-      if (!workspace.activeModel) {
-        return { status: 400, headers: responseHeaders, data: { error: 'Execute o modelo Meridian antes de otimizar o orçamento.' } };
-      }
-
-      const budget = Number(targetTotalBudget) || workspace.activeModel.totalSpend;
-
-      // Try official Meridian microservice optimizer
-      const pyOptResult = await mmmServiceClient.optimizeBudget({
-        targetTotalBudget: budget,
-        constraints,
-        modelId: workspace.activeModel.modelId,
-        activeModel: workspace.activeModel
-      });
-
-      if (pyOptResult.status !== 'success') {
-        return {
-          status: pyOptResult.status === 'service_unavailable' ? 503 : 500,
-          headers: responseHeaders,
-          data: pyOptResult
-        };
-      }
-
-      auditLogger.log('BUDGET_OPTIMIZED', {
-        sessionId: sessionId,
-        ip: clientIp,
-        details: { targetTotalBudget: budget, engine: pyOptResult.engine }
-      });
-
       return {
-        status: 200,
+        status: 501,
         headers: responseHeaders,
-        data: pyOptResult.results
+        data: { code: 'NOT_IMPLEMENTED', message: 'Budget Optimizer não está implementado.' }
       };
     }
 
     // 9. Simulate Scenario
     if (path === '/api/simulate' && method === 'POST') {
-      const { channelSpends } = body || {};
-      if (!workspace.activeModel) {
-        return { status: 400, headers: responseHeaders, data: { error: 'Execute o modelo Meridian antes de simular cenários.' } };
-      }
-
-      // Try official Meridian microservice simulation
-      const pySim = await mmmServiceClient.simulateScenario({
-        channelSpends: channelSpends || {},
-        modelId: workspace.activeModel.modelId,
-        activeModel: workspace.activeModel
-      });
-
-      if (pySim.status !== 'success') {
-        return {
-          status: pySim.status === 'service_unavailable' ? 503 : 500,
-          headers: responseHeaders,
-          data: pySim
-        };
-      }
-
-      auditLogger.log('SCENARIO_SIMULATED', {
-        sessionId: sessionId,
-        ip: clientIp,
-        details: { engine: pySim.engine }
-      });
-
       return {
-        status: 200,
+        status: 501,
         headers: responseHeaders,
-        data: pySim.results
+        data: { code: 'NOT_IMPLEMENTED', message: 'What-If não está implementado.' }
       };
     }
 
@@ -526,37 +498,11 @@ export async function handleApiRequest(
 
     // 12. Full Report
     if (path === '/api/report' && method === 'POST') {
-      const computeCheck = computeRateLimiter.check(clientIp);
-      if (!computeCheck.allowed) {
-        return { status: 429, headers: responseHeaders, data: { error: 'Muitas requisições de relatório. Aguarde um instante.' } };
-      }
-
-      if (!workspace.activeModel) {
-        return { status: 400, headers: responseHeaders, data: { error: 'Modelo Meridian não disponível.' } };
-      }
-
-      const pyOptResult = await mmmServiceClient.optimizeBudget({
-        targetTotalBudget: workspace.activeModel.totalSpend * 1.15,
-        modelId: workspace.activeModel.modelId,
-        activeModel: workspace.activeModel
-      });
-
-      if (pyOptResult.status !== 'success') {
-        return {
-          status: pyOptResult.status === 'service_unavailable' ? 503 : 500,
-          headers: responseHeaders,
-          data: pyOptResult
-        };
-      }
-
-      const report = await generateFullReport(workspace.activeModel, pyOptResult.results);
-
-      auditLogger.log('REPORT_GENERATED', {
-        sessionId: sessionId,
-        ip: clientIp
-      });
-
-      return { status: 200, headers: responseHeaders, data: report };
+      return {
+        status: 501,
+        headers: responseHeaders,
+        data: { code: 'NOT_IMPLEMENTED', message: 'Relatório executivo não está implementado.' }
+      };
     }
 
     return {

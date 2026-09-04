@@ -110,11 +110,12 @@ async function safeApiCall<T>(url: string, options?: RequestInit, throwOnError =
       } catch {}
 
       if (throwOnError) {
+        const detail = errorData?.detail;
         throw new ApiError(
-          errorData?.message || errorData?.details || `Erro na requisição (${res.status})`,
-          errorData?.code || 'HTTP_ERROR',
+          detail?.message || errorData?.message || errorData?.details || `Erro na requisição (${res.status})`,
+          detail?.code || errorData?.code || 'HTTP_ERROR',
           res.status,
-          errorData?.details
+          detail || errorData?.details
         );
       }
       return null;
@@ -315,7 +316,7 @@ export const apiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetTotalBudget, constraints })
-    });
+    }, true);
     if (data && data.reallocations && typeof data.totalIncrementalKpi === 'number') {
       return data;
     }
@@ -328,7 +329,7 @@ export const apiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ channelSpends })
-    });
+    }, true);
     if (data && typeof data.expectedKpi === 'number') {
       return data;
     }
@@ -367,7 +368,7 @@ export const apiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({})
-    });
+    }, true);
     if (data && data.title && data.summary) {
       return data;
     }

@@ -15,6 +15,9 @@ export interface MeridianServiceRequestPayload {
     mcmcDraws?: number;
     mcmcWarmup?: number;
     priors?: Record<string, any>;
+    maxLag?: number;
+    knots?: number;
+    randomSeed?: number;
   };
 }
 
@@ -22,46 +25,81 @@ export interface MeridianServiceError {
   code: string;
   message: string;
   field?: string;
+  stage?: string;
 }
 
 export interface MeridianServiceResponse<T = any> {
-  status: 'success' | 'error' | 'processing' | 'validation_error' | 'model_error' | 'service_unavailable';
+  status: 'success' | 'error' | 'processing' | 'validation_error' | 'model_error' | 'service_unavailable' | 'not_implemented';
+  httpStatus?: number;
   modelId?: string;
   engine?: string;
   engineVersion?: string;
   results?: T;
-  posterior?: any[];
-  diagnostics?: any;
   warnings?: string[];
   errors?: MeridianServiceError[];
 }
 
-export class MMMServiceClient {
-  private serviceUrl: string;
+function statusForHttpCode(status: number): MeridianServiceResponse['status'] {
+  if (status === 422) return 'validation_error';
+  if (status === 501) return 'not_implemented';
+  if (status === 503) return 'service_unavailable';
+  if (status >= 500) return 'model_error';
+  return 'error';
+}
 
-  constructor() {
-    this.serviceUrl = process.env.MERIDIAN_SERVICE_URL || 'http://127.0.0.1:8008';
+function parseServiceError(data: any, response: Response): MeridianServiceError {
+  const detail = data?.detail;
+  return {
+    code: detail?.code || data?.code || 'MERIDIAN_ERROR',
+    message: detail?.message || data?.message || response.statusText || `HTTP ${response.status}`,
+    stage: detail?.stage || data?.stage
+  };
+}
+
+function isValidFitResponse(data: any): boolean {
+  return data?.status === 'success'
+    && typeof data.modelId === 'string'
+    && data.engine === 'google-meridian'
+    && typeof data.engineVersion === 'string'
+    && data.results !== null
+    && typeof data.results === 'object'
+    && Object.hasOwn(data.results, 'totalSpend')
+    && Object.hasOwn(data.results, 'totalKpi')
+    && Object.hasOwn(data.results, 'blendedRoi')
+    && Array.isArray(data.results.channels)
+    && data.results.diagnostics !== null
+    && typeof data.results.diagnostics === 'object'
+    && data.results.responseCurves !== null
+    && typeof data.results.responseCurves === 'object';
+}
+
+export class MMMServiceClient {
+  private readonly serviceUrl: string;
+
+  constructor(serviceUrl = process.env.MERIDIAN_SERVICE_URL || 'http://127.0.0.1:8008') {
+    this.serviceUrl = serviceUrl;
   }
 
   async checkHealth(): Promise<{ status: string; meridianModuleLoaded: boolean; [key: string]: any }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(`${this.serviceUrl}/health`, {
+      const response = await fetch(`${this.serviceUrl}/health`, {
         method: 'GET',
         signal: controller.signal
       });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        const data = await res.json();
+      if (response.ok) {
+        const data = await response.json();
         return {
-          status: 'healthy',
-          meridianModuleLoaded: data.meridian_installed ?? true,
+          status: data?.status === 'healthy' && data?.meridian_available === true ? 'healthy' : 'unavailable',
+          meridianModuleLoaded: data?.meridian_available === true,
           details: data
         };
       }
     } catch {
-      // Python microservice not responding
+      // The health result below reports the real unavailable state.
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     return {
@@ -72,187 +110,93 @@ export class MMMServiceClient {
   }
 
   async fitModel(payload: MeridianServiceRequestPayload): Promise<MeridianServiceResponse> {
-    try {
-      const controller = new AbortController();
-      const timeoutMs = Number(process.env.MERIDIAN_TIMEOUT_MS) || 60000; // Increased to 60s for actual MCMC runs
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.MERIDIAN_TIMEOUT_MS) || 900000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+    try {
       const response = await fetch(`${this.serviceUrl}/api/v1/meridian/fit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         signal: controller.signal
       });
-      clearTimeout(timeoutId);
+      const data = await response.json().catch(() => null);
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.results && Array.isArray(data.results.channels)) {
-          return {
-            status: 'success',
-            modelId: data.modelId || data.model_id,
-            engine: 'google-meridian',
-            engineVersion: data.version || 'official',
-            results: data.results,
-            diagnostics: data.diagnostics,
-            warnings: data.warnings || []
-          };
-        }
+      if (!response.ok) {
         return {
-          status: 'error',
-          errors: [{ code: 'INVALID_RESPONSE', message: 'Serviço retornou um formato inválido' }]
+          status: statusForHttpCode(response.status),
+          httpStatus: response.status,
+          errors: [parseServiceError(data, response)]
         };
-      } else {
-        let errorData: any = null;
-        try {
-          const text = await response.text();
-          errorData = JSON.parse(text);
-        } catch {}
-        
+      }
+
+      if (!isValidFitResponse(data)) {
         return {
           status: 'error',
+          httpStatus: 502,
           errors: [{
-            code: 'MERIDIAN_ERROR',
-            message: errorData?.detail || errorData?.message || `Erro do microserviço: ${response.statusText}`
+            code: 'INVALID_RESPONSE',
+            message: 'O serviço Meridian retornou um contrato de sucesso incompleto.'
           }]
         };
       }
-    } catch (err: any) {
+
+      return {
+        status: 'success',
+        httpStatus: 200,
+        modelId: data.modelId,
+        engine: data.engine,
+        engineVersion: data.engineVersion,
+        results: data.results,
+        warnings: Array.isArray(data.warnings) ? data.warnings : []
+      };
+    } catch (error: any) {
       return {
         status: 'service_unavailable',
+        httpStatus: 503,
         errors: [{
-          code: 'MERIDIAN_UNAVAILABLE',
-          message: 'O microserviço Python Google Meridian está indisponível ou ocorreu timeout: ' + err.message
+          code: error?.name === 'AbortError' ? 'MERIDIAN_TIMEOUT' : 'MERIDIAN_UNAVAILABLE',
+          message: `O microserviço Google Meridian está indisponível: ${error?.message || String(error)}`
         }]
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
   async getDiagnostics(): Promise<any> {
-    try {
-      const health = await this.checkHealth();
-      if (health.status === 'healthy') {
-        return { status: 'connected', serviceUrl: this.serviceUrl, ...health };
-      }
-    } catch {}
-
+    const health = await this.checkHealth();
     return {
-      status: 'disconnected',
+      status: health.status === 'healthy' ? 'connected' : 'disconnected',
       serviceUrl: this.serviceUrl,
-      code: 'MERIDIAN_OFFLINE',
-      message: 'Serviço Python Meridian offline. Inicie o container mmm-service para diagnósticos reais.'
+      ...health
     };
   }
 
-  async optimizeBudget(payload: {
+  async optimizeBudget(_payload: {
     targetTotalBudget: number;
     constraints?: any;
     modelId?: string;
     activeModel?: any;
   }): Promise<MeridianServiceResponse> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(`${this.serviceUrl}/api/v1/meridian/optimize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      
-      if (res.ok) {
-        const data = await res.json();
-        if (data && (data.reallocations || data.optimizedKpi)) {
-          return {
-            status: 'success',
-            engine: 'google-meridian',
-            results: data
-          };
-        }
-        return {
-          status: 'error',
-          errors: [{ code: 'INVALID_RESPONSE', message: 'Serviço retornou um formato inválido' }]
-        };
-      } else {
-        let errorData: any = null;
-        try {
-          const text = await res.text();
-          errorData = JSON.parse(text);
-        } catch {}
-        
-        return {
-          status: 'error',
-          errors: [{
-            code: 'MERIDIAN_ERROR',
-            message: errorData?.detail || errorData?.message || `Erro do microserviço: ${res.statusText}`
-          }]
-        };
-      }
-    } catch (err: any) {
-      return {
-        status: 'service_unavailable',
-        errors: [{
-          code: 'MERIDIAN_UNAVAILABLE',
-          message: 'O microserviço Python Google Meridian está indisponível ou ocorreu timeout: ' + err.message
-        }]
-      };
-    }
+    return {
+      status: 'not_implemented',
+      httpStatus: 501,
+      errors: [{ code: 'NOT_IMPLEMENTED', message: 'Budget Optimizer não está implementado.' }]
+    };
   }
 
-  async simulateScenario(payload: {
+  async simulateScenario(_payload: {
     channelSpends: Record<string, number>;
     modelId?: string;
     activeModel?: any;
   }): Promise<MeridianServiceResponse> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(`${this.serviceUrl}/api/v1/meridian/simulate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data && (data.expectedKpi || data.channelSpends)) {
-          return {
-            status: 'success',
-            engine: 'google-meridian',
-            results: data
-          };
-        }
-        return {
-          status: 'error',
-          errors: [{ code: 'INVALID_RESPONSE', message: 'Serviço retornou um formato inválido' }]
-        };
-      } else {
-        let errorData: any = null;
-        try {
-          const text = await res.text();
-          errorData = JSON.parse(text);
-        } catch {}
-        
-        return {
-          status: 'error',
-          errors: [{
-            code: 'MERIDIAN_ERROR',
-            message: errorData?.detail || errorData?.message || `Erro do microserviço: ${res.statusText}`
-          }]
-        };
-      }
-    } catch (err: any) {
-      return {
-        status: 'service_unavailable',
-        errors: [{
-          code: 'MERIDIAN_UNAVAILABLE',
-          message: 'O microserviço Python Google Meridian está indisponível ou ocorreu timeout: ' + err.message
-        }]
-      };
-    }
+    return {
+      status: 'not_implemented',
+      httpStatus: 501,
+      errors: [{ code: 'NOT_IMPLEMENTED', message: 'What-If não está implementado.' }]
+    };
   }
 }
 
