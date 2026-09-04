@@ -1,24 +1,40 @@
 import { inferColumnMappings } from '../services/dataMapper';
 import { calculateDataReadinessScore } from '../services/dataReadiness';
 import { validateDataset, sanitizeDataset, DataRow } from '../services/dataValidator';
+import { ColumnMapping, MeridianModelConfig, MeridianModelResults, BudgetOptimizationResult, ScenarioDefinition } from '../types/mmm';
 import {
-  generateAutomatedInsights,
-  generateBudgetExplanation
-} from './geminiHandler';
-import { ColumnMapping, MeridianModelConfig, MeridianModelResults } from '../types/mmm';
+  buildAIContext,
+  buildBudgetInsights,
+  buildDataLineage,
+  buildDeterministicReport,
+  buildScenarioInsights,
+  cachedDerivedResult,
+  clearDerivedCache,
+  DECISION_ENGINE_VERSION,
+  derivedCacheKey,
+  deriveModelLabels,
+  renderInsights
+} from '../services/insights';
 import { mmmServiceClient } from './services/mmmService';
+import { aiNarrativeService } from './services/aiNarrativeService';
 import { computeRateLimiter, uploadRateLimiter } from './security/rateLimiter';
 import { sessionManager, WorkspaceState } from './security/sessionManager';
 import {
   sanitizeFilename,
   sanitizeRowsForSpreadsheet,
-  validateAndClampMcmcConfig,
-  sanitizeAiPromptInput
+  validateAndClampMcmcConfig
 } from './security/inputSanitizer';
 import { auditLogger } from './security/auditLogger';
 
 function finiteNumberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function invalidateScientificState(workspace: WorkspaceState): void {
+  const previousModelId = workspace.activeModel?.modelId;
+  workspace.activeModel = null;
+  workspace.modelConfig = null;
+  if (previousModelId) clearDerivedCache(previousModelId);
 }
 
 /** Preserves real diagnostics and represents unavailable values as null. */
@@ -74,12 +90,12 @@ export function attachExposureColumns(
  * Extracts session token from HTTP Authorization header or cookie
  */
 function extractSessionId(headers?: Record<string, any>): string {
-  // Use anonymous session id mechanism, isolated per browser/client
-  let sid = headers && (headers['x-session-id'] || headers['X-Session-Id']);
-  if (!sid) {
-    sid = 'anon_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+  const supplied = headers && (headers['x-session-id'] || headers['X-Session-Id']);
+  const value = Array.isArray(supplied) ? supplied[0] : supplied;
+  if (typeof value === 'string' && (/^anon_[a-f0-9]{32}$/.test(value) || process.env.NODE_ENV === 'test')) {
+    return value;
   }
-  return sid;
+  return `anon_${crypto.randomUUID().replace(/-/g, '')}`;
 }
 
 export async function handleApiRequest(
@@ -145,16 +161,9 @@ export async function handleApiRequest(
       }
 
       // Neutralize CSV / Spreadsheet Formula Injection (CWE-1236)
-      const sanitizedRows = rows.map((r: any) => {
-        const clean: DataRow = {};
-        for (const c of rawCols) {
-          const val = r[c];
-          clean[c] = typeof val === 'string' && ['=', '+', '-', '@', '\t', '\r'].includes(val.trim()[0])
-            ? `'${val.trim()}`
-            : val;
-        }
-        return clean;
-      });
+      const sanitizedRows = sanitizeRowsForSpreadsheet(rows).map(row =>
+        Object.fromEntries(rawCols.map(column => [column, row[column]]))
+      );
 
       const safeFilename = sanitizeFilename(filename);
       const mappings = inferColumnMappings(rawCols, sanitizedRows);
@@ -168,6 +177,7 @@ export async function handleApiRequest(
         mappings,
         filename: safeFilename
       };
+      invalidateScientificState(workspace);
       workspace.lastUpdated = Date.now();
 
       auditLogger.log('DATASET_UPLOAD', {
@@ -198,7 +208,7 @@ export async function handleApiRequest(
       const targetRows = rows || workspace.dataset?.rows;
       const targetMappings = mappings || workspace.dataset?.mappings;
 
-      if (!targetRows || targetRows.length === 0) {
+      if (!Array.isArray(targetRows) || targetRows.length === 0 || !Array.isArray(targetMappings)) {
         return { status: 400, headers: responseHeaders, data: { error: 'Nenhum dado carregado para validação.' } };
       }
 
@@ -221,13 +231,14 @@ export async function handleApiRequest(
       const targetRows = rows || workspace.dataset?.rows;
       const targetMappings = mappings || workspace.dataset?.mappings;
 
-      if (!targetRows || !targetMappings) {
+      if (!Array.isArray(targetRows) || !Array.isArray(targetMappings)) {
         return { status: 400, headers: responseHeaders, data: { error: 'Nenhum dado ou mapeamento carregado para saneamento.' } };
       }
 
       const sanitizeResult = sanitizeDataset(targetRows, targetMappings);
       if (workspace.dataset) {
         workspace.dataset.rows = sanitizeResult.cleanedRows;
+        invalidateScientificState(workspace);
         workspace.lastUpdated = Date.now();
       }
 
@@ -260,10 +271,28 @@ export async function handleApiRequest(
     // 5. Map Columns
     if (path === '/api/map-columns' && method === 'POST') {
       const { mappings } = body || {};
-      if (mappings && workspace.dataset) {
-        workspace.dataset.mappings = mappings;
-        workspace.lastUpdated = Date.now();
+      if (!workspace.dataset) {
+        return { status: 400, headers: responseHeaders, data: { error: 'Nenhum dataset carregado para mapear.' } };
       }
+      const allowedTypes = new Set([
+        'date', 'kpi', 'media_spend', 'media_impressions', 'media_clicks',
+        'media_reach', 'media_frequency', 'geo', 'population', 'revenue_per_kpi',
+        'control', 'ignore'
+      ]);
+      if (!Array.isArray(mappings)
+        || mappings.length !== workspace.dataset.columns.length
+        || new Set(mappings.map(mapping => mapping?.columnName)).size !== mappings.length
+        || mappings.some(mapping =>
+        !mapping
+        || typeof mapping.columnName !== 'string'
+        || !workspace.dataset?.columns.includes(mapping.columnName)
+        || !allowedTypes.has(mapping.mappedType)
+        )) {
+        return { status: 422, headers: responseHeaders, data: { code: 'INVALID_MAPPING', message: 'O mapeamento de colunas é inválido ou incompleto.' } };
+      }
+      workspace.dataset.mappings = mappings;
+      invalidateScientificState(workspace);
+      workspace.lastUpdated = Date.now();
       return {
         status: 200,
         headers: responseHeaders,
@@ -289,14 +318,58 @@ export async function handleApiRequest(
       const targetRows = rows || workspace.dataset?.rows;
       const modelConfig: MeridianModelConfig = config || workspace.modelConfig;
 
-      if (!targetRows || targetRows.length === 0) {
+      if (!Array.isArray(targetRows) || targetRows.length === 0) {
         return { status: 400, headers: responseHeaders, data: { error: 'Nenhum dado disponível para execução do modelo.' } };
       }
       if (!modelConfig || !modelConfig.mediaChannels || modelConfig.mediaChannels.length === 0) {
         return { status: 400, headers: responseHeaders, data: { error: 'Configuração do Meridian inválida: selecione ao menos 1 canal de mídia.' } };
       }
 
-      const configWithExposures = attachExposureColumns(modelConfig, workspace.dataset?.mappings);
+      const activeMappings = workspace.dataset?.mappings || [];
+      const unsupported = activeMappings.filter(mapping =>
+        ['geo', 'population', 'revenue_per_kpi', 'media_reach', 'media_frequency'].includes(mapping.mappedType)
+      );
+      if (unsupported.length > 0) {
+        return {
+          status: 501,
+          headers: responseHeaders,
+          data: {
+            code: 'NOT_IMPLEMENTED',
+            message: `O pipeline científico para ${[...new Set(unsupported.map(item => item.mappedType))].join(', ')} ainda não está implementado.`,
+            stage: 'input_data'
+          }
+        };
+      }
+
+      if (activeMappings.length > 0) {
+        const validation = validateDataset(targetRows, activeMappings);
+        if (!validation.canRunModel || validation.isModelBlocked) {
+          return {
+            status: 422,
+            headers: responseHeaders,
+            data: {
+              code: 'INVALID_INPUT_DATA',
+              message: validation.blockingReason || 'O dataset não passou pela validação científica.',
+              stage: 'input_data',
+              validation
+            }
+          };
+        }
+      }
+
+      const configWithExposures = attachExposureColumns(modelConfig, activeMappings);
+      const missingExposure = configWithExposures.mediaChannels.find(channel => !channel.impressionsColumn);
+      if (missingExposure) {
+        return {
+          status: 422,
+          headers: responseHeaders,
+          data: {
+            code: 'MISSING_MEDIA_EXPOSURE',
+            message: `O canal '${missingExposure.channelName}' possui spend, mas não possui exposure (impressões ou cliques).`,
+            stage: 'input_data'
+          }
+        };
+      }
 
       // Enforce server-side parameter bounds to prevent MCMC Resource Exhaustion
       const { clampedConfig } = validateAndClampMcmcConfig(configWithExposures);
@@ -333,6 +406,7 @@ export async function handleApiRequest(
           diagnostics: formatDiagnostics(pyServiceResponse.results.diagnostics),
           warnings: pyServiceResponse.warnings || []
         } as MeridianModelResults;
+        Object.assign(results, deriveModelLabels(results), { dataLineage: buildDataLineage(results.modelId) });
       } else {
         const serviceError = pyServiceResponse.errors?.[0];
         const errorMsg = serviceError?.message || 'O serviço de modelagem econométrica não pôde concluir o ajuste.';
@@ -360,6 +434,8 @@ export async function handleApiRequest(
         };
       }
 
+      const previousModelId = workspace.activeModel?.modelId;
+      if (previousModelId && previousModelId !== results.modelId) clearDerivedCache(previousModelId);
       workspace.activeModel = results;
       workspace.lastUpdated = Date.now();
 
@@ -436,23 +512,92 @@ export async function handleApiRequest(
 
     // 8. Optimize Budget
     if (path === '/api/optimize-budget' && method === 'POST') {
+      if (!workspace.activeModel?.modelId) {
+        return { status: 400, headers: responseHeaders, data: { code: 'MODEL_REQUIRED', message: 'Modelo Meridian não disponível.' } };
+      }
+
+      const unsupported = workspace.dataset?.mappings.filter(mapping =>
+        ['geo', 'population', 'revenue_per_kpi', 'media_reach', 'media_frequency'].includes(mapping.mappedType)
+      ) || [];
+      if (unsupported.length > 0) {
+        return {
+          status: 501,
+          headers: responseHeaders,
+          data: {
+            code: 'NOT_IMPLEMENTED',
+            message: `O pipeline específico para ${unsupported.map(item => item.mappedType).join(', ')} ainda não está implementado.`,
+            stage: 'input_data'
+          }
+        };
+      }
+      const targetTotalBudget = Number(body?.targetTotalBudget);
+      if (!Number.isFinite(targetTotalBudget) || targetTotalBudget <= 0) {
+        return { status: 422, headers: responseHeaders, data: { code: 'INVALID_OPTIMIZER_INPUT', message: 'targetTotalBudget deve ser positivo.' } };
+      }
+      const optimizerResponse = await mmmServiceClient.optimizeBudget({
+        modelId: workspace.activeModel.modelId,
+        targetTotalBudget,
+        constraints: body?.constraints || {},
+        decisionEngineVersion: DECISION_ENGINE_VERSION
+      });
+      if (optimizerResponse.status !== 'success' || !optimizerResponse.results) {
+        return {
+          status: optimizerResponse.httpStatus || 500,
+          headers: responseHeaders,
+          data: optimizerResponse.errors?.[0] || { code: 'OPTIMIZATION_FAILED', message: 'O Meridian não concluiu a otimização.' }
+        };
+      }
+      const optimization = optimizerResponse.results as BudgetOptimizationResult;
+      const insightKey = derivedCacheKey(workspace.activeModel.modelId, 'optimizer', {
+        targetTotalBudget,
+        constraints: body?.constraints || {}
+      });
+      const structuredInsights = cachedDerivedResult(insightKey, () => buildBudgetInsights({
+        model: workspace.activeModel as MeridianModelResults,
+        optimization
+      }));
       return {
-        status: 501,
+        status: 200,
         headers: responseHeaders,
-        data: { code: 'NOT_IMPLEMENTED', message: 'Budget Optimizer não está implementado.' }
+        data: { ...optimization, insights: structuredInsights }
       };
     }
 
     // 9. Simulate Scenario
     if (path === '/api/simulate' && method === 'POST') {
+      if (!workspace.activeModel?.modelId) {
+        return { status: 400, headers: responseHeaders, data: { code: 'MODEL_REQUIRED', message: 'Modelo Meridian não disponível.' } };
+      }
+      const channelSpends = body?.channelSpends;
+      if (!channelSpends || typeof channelSpends !== 'object') {
+        return { status: 422, headers: responseHeaders, data: { code: 'INVALID_SCENARIO_INPUT', message: 'channelSpends é obrigatório.' } };
+      }
+      const scenarioResponse = await mmmServiceClient.simulateScenario({
+        modelId: workspace.activeModel.modelId,
+        channelSpends,
+        decisionEngineVersion: DECISION_ENGINE_VERSION
+      });
+      if (scenarioResponse.status !== 'success' || !scenarioResponse.results) {
+        return {
+          status: scenarioResponse.httpStatus || 500,
+          headers: responseHeaders,
+          data: scenarioResponse.errors?.[0] || { code: 'SIMULATION_FAILED', message: 'O Meridian não concluiu a simulação.' }
+        };
+      }
+      const scenario = scenarioResponse.results as ScenarioDefinition;
+      const insightKey = derivedCacheKey(workspace.activeModel.modelId, 'scenario', channelSpends);
+      const structuredInsights = cachedDerivedResult(insightKey, () => buildScenarioInsights({
+        model: workspace.activeModel as MeridianModelResults,
+        scenario
+      }));
       return {
-        status: 501,
+        status: 200,
         headers: responseHeaders,
-        data: { code: 'NOT_IMPLEMENTED', message: 'What-If não está implementado.' }
+        data: { ...scenario, insights: structuredInsights }
       };
     }
 
-    // 10. Generate Automated Insights via Gemini (Compute Rate Limited)
+    // 10. Generate deterministic insights. AI is never required for this route.
     if (path === '/api/generate-insights' && method === 'POST') {
       const computeCheck = computeRateLimiter.check(clientIp);
       if (!computeCheck.allowed) {
@@ -462,47 +607,136 @@ export async function handleApiRequest(
       if (!workspace.activeModel) {
         return { status: 400, headers: responseHeaders, data: { error: 'Modelo Meridian não disponível.' } };
       }
-      const insights = await generateAutomatedInsights(workspace.activeModel);
+      const optimizerResponse = await mmmServiceClient.optimizeBudget({
+        modelId: workspace.activeModel.modelId,
+        targetTotalBudget: workspace.activeModel.totalSpend,
+        constraints: {},
+        decisionEngineVersion: DECISION_ENGINE_VERSION
+      });
+      if (optimizerResponse.status !== 'success' || !optimizerResponse.results) {
+        return {
+          status: optimizerResponse.httpStatus || 500,
+          headers: responseHeaders,
+          data: optimizerResponse.errors?.[0] || { code: 'OPTIMIZATION_FAILED', message: 'O Meridian não concluiu a otimização.' }
+        };
+      }
+      const insightKey = derivedCacheKey(workspace.activeModel.modelId, 'insights', { budget: workspace.activeModel.totalSpend });
+      const structuredInsights = cachedDerivedResult(insightKey, () => buildBudgetInsights({
+        model: workspace.activeModel as MeridianModelResults,
+        optimization: optimizerResponse.results as BudgetOptimizationResult
+      }));
+      const insights = renderInsights(structuredInsights);
       return {
         status: 200,
         headers: responseHeaders,
-        data: { insights }
+        data: { insights, structuredInsights, decisionEngineVersion: DECISION_ENGINE_VERSION }
       };
     }
 
-    // 11. Generate Budget Explanation via Gemini (Prompt Injection Sanitized)
+    // 11. Deterministic budget explanation from the active model and official optimizer.
     if (path === '/api/budget-explanation' && method === 'POST') {
       const computeCheck = computeRateLimiter.check(clientIp);
       if (!computeCheck.allowed) {
         return { status: 429, headers: responseHeaders, data: { error: 'Muitas requisições de explicação orçamentária. Aguarde um instante.' } };
       }
 
-      const { optResult, extraQuery } = body || {};
       if (!workspace.activeModel) {
         return { status: 400, headers: responseHeaders, data: { error: 'Modelo Meridian não disponível.' } };
       }
-      if (!optResult) {
-        return { status: 400, headers: responseHeaders, data: { error: 'Nenhum resultado de otimização fornecido.' } };
+      const targetTotalBudget = Number(body?.targetTotalBudget ?? workspace.activeModel.totalSpend);
+      if (!Number.isFinite(targetTotalBudget) || targetTotalBudget <= 0) {
+        return { status: 422, headers: responseHeaders, data: { code: 'INVALID_OPTIMIZER_INPUT', message: 'targetTotalBudget deve ser positivo.' } };
       }
-
-      // Mitigate Prompt Injection: sanitize and clamp extraQuery
-      const safeQuery = sanitizeAiPromptInput(extraQuery, 500);
-
-      const explanation = await generateBudgetExplanation(workspace.activeModel, optResult, safeQuery);
+      const optimizerResponse = await mmmServiceClient.optimizeBudget({
+        modelId: workspace.activeModel.modelId,
+        targetTotalBudget,
+        constraints: {},
+        decisionEngineVersion: DECISION_ENGINE_VERSION
+      });
+      if (optimizerResponse.status !== 'success' || !optimizerResponse.results) {
+        return { status: optimizerResponse.httpStatus || 500, headers: responseHeaders, data: optimizerResponse.errors?.[0] };
+      }
+      const structured = buildBudgetInsights({ model: workspace.activeModel, optimization: optimizerResponse.results as BudgetOptimizationResult });
+      const question = typeof body?.extraQuery === 'string' ? body.extraQuery.slice(0, 500).toLocaleLowerCase('pt-BR') : '';
+      const byChannel = structured.filter(item => item.channel && question.includes(item.channel.toLocaleLowerCase('pt-BR')));
+      const byAction = structured.filter(item =>
+        (/(cortar|reduzir|redu[cç][aã]o|redu[cç][oõ]es|diminuir)/.test(question) && item.action === 'REDUCE_BUDGET')
+        || (/(aumentar|aumento|aumentos|investir|onde colocar|extra)/.test(question) && item.action === 'INCREASE_BUDGET')
+        || (/(incerteza|evidência|evidencia)/.test(question) && item.action === 'INSUFFICIENT_EVIDENCE')
+      );
+      const selected = byChannel.length ? byChannel : byAction.length ? byAction : structured;
+      const deterministic = renderInsights(selected).map(item => `${item.title}\n${item.summary}\n${item.actionableStep}`).join('\n\n');
       return {
         status: 200,
         headers: responseHeaders,
-        data: { explanation }
+        data: { explanation: deterministic, modelId: workspace.activeModel.modelId, decisionEngineVersion: DECISION_ENGINE_VERSION }
       };
     }
 
-    // 12. Full Report
+    // 12. Standard report is always deterministic and never calls Gemini.
     if (path === '/api/report' && method === 'POST') {
+      if (!workspace.activeModel) {
+        return { status: 400, headers: responseHeaders, data: { code: 'MODEL_REQUIRED', message: 'Modelo Meridian não disponível.' } };
+      }
+      const optimizerResponse = await mmmServiceClient.optimizeBudget({
+        modelId: workspace.activeModel.modelId,
+        targetTotalBudget: workspace.activeModel.totalSpend,
+        constraints: {},
+        decisionEngineVersion: DECISION_ENGINE_VERSION
+      });
+      if (optimizerResponse.status !== 'success' || !optimizerResponse.results) {
+        return { status: optimizerResponse.httpStatus || 500, headers: responseHeaders, data: optimizerResponse.errors?.[0] };
+      }
+      const optimization = optimizerResponse.results as BudgetOptimizationResult;
+      const insightKey = derivedCacheKey(workspace.activeModel.modelId, 'report-insights', { budget: workspace.activeModel.totalSpend });
+      const structured = cachedDerivedResult(insightKey, () => buildBudgetInsights({ model: workspace.activeModel as MeridianModelResults, optimization }));
+      const reportKey = derivedCacheKey(workspace.activeModel.modelId, 'standard-report', { budget: workspace.activeModel.totalSpend });
+      const report = cachedDerivedResult(reportKey, () => buildDeterministicReport(workspace.activeModel as MeridianModelResults, optimization, structured));
+      auditLogger.log('REPORT_GENERATED', { sessionId, ip: clientIp, details: { modelId: workspace.activeModel.modelId, source: 'deterministic' } });
       return {
-        status: 501,
+        status: 200,
         headers: responseHeaders,
-        data: { code: 'NOT_IMPLEMENTED', message: 'Relatório executivo não está implementado.' }
+        data: report
       };
+    }
+
+    // 13. Premium narrative: one explicit, compact, cached and deduplicated AI request.
+    if (path === '/api/report/ai' && method === 'POST') {
+      if (!workspace.activeModel) {
+        return { status: 400, headers: responseHeaders, data: { code: 'MODEL_REQUIRED', message: 'Modelo Meridian não disponível.' } };
+      }
+      const optimizerResponse = await mmmServiceClient.optimizeBudget({
+        modelId: workspace.activeModel.modelId,
+        targetTotalBudget: workspace.activeModel.totalSpend,
+        constraints: {},
+        decisionEngineVersion: DECISION_ENGINE_VERSION
+      });
+      if (optimizerResponse.status !== 'success' || !optimizerResponse.results) {
+        return { status: optimizerResponse.httpStatus || 500, headers: responseHeaders, data: optimizerResponse.errors?.[0] };
+      }
+      const optimization = optimizerResponse.results as BudgetOptimizationResult;
+      const insightKey = derivedCacheKey(workspace.activeModel.modelId, 'report-insights', { budget: workspace.activeModel.totalSpend });
+      const structured = cachedDerivedResult(insightKey, () => buildBudgetInsights({ model: workspace.activeModel as MeridianModelResults, optimization }));
+      const report = buildDeterministicReport(workspace.activeModel as MeridianModelResults, optimization, structured);
+      const aiResult = await aiNarrativeService.enhance({
+        explicitlyRequested: body?.useAi === true,
+        context: buildAIContext(workspace.activeModel as MeridianModelResults, optimization, structured),
+        outputType: 'executive_report'
+      });
+      return {
+        status: 200,
+        headers: responseHeaders,
+        data: {
+          ...report,
+          aiNarrative: aiResult.narrative,
+          aiStatus: aiResult.status,
+          aiCacheHit: aiResult.cacheHit
+        }
+      };
+    }
+
+    if (path === '/api/ai/usage' && method === 'GET') {
+      return { status: 200, headers: responseHeaders, data: aiNarrativeService.getMetrics() };
     }
 
     return {

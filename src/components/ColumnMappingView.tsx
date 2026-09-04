@@ -61,6 +61,46 @@ const TYPE_OPTIONS: { type: ColumnType; label: string; group: string; descriptio
     color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60'
   },
   {
+    type: 'media_reach',
+    label: 'Alcance Único de Mídia (Reach)',
+    group: 'Investimento',
+    description: 'Pessoas únicas alcançadas; requer frequência pareada para modelos reach/frequency.',
+    icon: Eye,
+    color: 'text-cyan-600 bg-cyan-50 dark:bg-cyan-950/60'
+  },
+  {
+    type: 'media_frequency',
+    label: 'Frequência Média de Exposição',
+    group: 'Investimento',
+    description: 'Frequência média pareada ao alcance do mesmo canal.',
+    icon: Layers,
+    color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60'
+  },
+  {
+    type: 'geo',
+    label: 'Unidade Geográfica',
+    group: 'Estrutura',
+    description: 'Identificador de região, mercado ou unidade geográfica.',
+    icon: Layers,
+    color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/60'
+  },
+  {
+    type: 'population',
+    label: 'População da Região',
+    group: 'Estrutura',
+    description: 'População correspondente a cada unidade geográfica.',
+    icon: Layers,
+    color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/60'
+  },
+  {
+    type: 'revenue_per_kpi',
+    label: 'Receita por Unidade do KPI',
+    group: 'Resultado',
+    description: 'Conversão de KPI não monetário para receita; não é o KPI principal.',
+    icon: DollarSign,
+    color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60'
+  },
+  {
     type: 'control',
     label: 'Fatores Externos (Preço, Promoções, Sazonalidade)',
     group: 'Fatores Externos',
@@ -103,7 +143,7 @@ export const ColumnMappingView: React.FC<ColumnMappingViewProps> = ({
           ...m,
           mappedType: newType,
           channelName:
-            newType === 'media_spend' || newType === 'media_impressions' || newType === 'media_clicks'
+            ['media_spend', 'media_impressions', 'media_clicks', 'media_reach', 'media_frequency'].includes(newType)
               ? m.channelName || colName
               : undefined
         };
@@ -153,7 +193,17 @@ export const ColumnMappingView: React.FC<ColumnMappingViewProps> = ({
   const spendCount = localMappings.filter(m => m.mappedType === 'media_spend').length;
   const controlCount = localMappings.filter(m => m.mappedType === 'control').length;
 
-  const isReady = dateCount >= 1 && kpiCount >= 1 && spendCount >= 1;
+  const spendChannels = localMappings.filter(m => m.mappedType === 'media_spend');
+  const exposureChannels = new Set(
+    localMappings
+      .filter(m => m.mappedType === 'media_impressions' || m.mappedType === 'media_clicks')
+      .map(m => m.channelName?.trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const allSpendChannelsHaveExposure = spendChannels.every(mapping =>
+    Boolean(mapping.channelName && exposureChannels.has(mapping.channelName.trim().toLowerCase()))
+  );
+  const isReady = dateCount === 1 && kpiCount === 1 && spendCount >= 1 && allSpendChannelsHaveExposure;
 
   const getBadge = (type?: 'direct' | 'caution' | 'control') => {
     if (type === 'direct') {
@@ -294,7 +344,7 @@ export const ColumnMappingView: React.FC<ColumnMappingViewProps> = ({
         <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span>
-            Para avançar, certifique-se de ter definido pelo menos 1 coluna de <strong>Data</strong>, 1 coluna de <strong>Resultado</strong> e 1 coluna de <strong>Investimento em Mídia</strong>.
+            Para avançar, defina exatamente 1 coluna de <strong>Data</strong>, exatamente 1 coluna de <strong>Resultado</strong> e associe cada <strong>Investimento em Mídia</strong> a uma coluna de exposição do mesmo canal.
           </span>
         </div>
       )}
@@ -350,7 +400,7 @@ export const ColumnMappingView: React.FC<ColumnMappingViewProps> = ({
                 </div>
 
                 {/* Library Channel Linkage or Custom Channel */}
-                {(col.mappedType === 'media_spend' || col.mappedType === 'media_impressions' || col.mappedType === 'media_clicks') ? (
+                {(['media_spend', 'media_impressions', 'media_clicks', 'media_reach', 'media_frequency'].includes(col.mappedType)) ? (
                   <div className="flex-1 max-w-xs space-y-1.5">
                     <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase block">
                       Vincular a Canal da Biblioteca

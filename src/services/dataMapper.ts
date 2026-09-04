@@ -26,7 +26,7 @@ export function inferColumnMappings(
       detectedMetricFamily = matchedMetric.familyLabel;
     }
 
-    // 1. Date Detection
+    // Structural fields must be detected before generic business metrics.
     if (
       lower === 'date' ||
       lower === 'data' ||
@@ -44,6 +44,33 @@ export function inferColumnMappings(
     ) {
       mappedType = 'date';
       description = 'Índice temporal (data da semana/período)';
+    }
+    else if (/^(geo|geography|region|state|city|market|dma|uf|regiao|estado|cidade)$/i.test(lower)) {
+      mappedType = 'geo';
+      description = 'Dimensão geográfica do modelo';
+    }
+    else if (lower === 'population' || lower === 'populacao' || lower.endsWith('_population')) {
+      mappedType = 'population';
+      description = 'População da unidade geográfica';
+    }
+    else if (
+      lower === 'revenue_per_kpi' ||
+      lower === 'revenue_per_conversion' ||
+      lower === 'receita_por_kpi' ||
+      lower === 'receita_por_conversao'
+    ) {
+      mappedType = 'revenue_per_kpi';
+      description = 'Receita média por unidade do KPI não monetário';
+    }
+    else if (lower.includes('frequency') || lower.includes('frequencia')) {
+      mappedType = 'media_frequency';
+      channelName = matchedChannel?.channel || formatChannelName(col);
+      description = `Frequência de exposição (${channelName})`;
+    }
+    else if (matchedMetric?.id === 'reach' || lower.includes('reach') || lower.includes('alcance')) {
+      mappedType = 'media_reach';
+      channelName = matchedChannel?.channel || formatChannelName(col);
+      description = `Alcance de mídia (${channelName})`;
     }
     // 2. KPI / Business Output Detection
     else if (
@@ -93,15 +120,13 @@ export function inferColumnMappings(
     // 4. Impressions Detection
     else if (
       matchedMetric?.id === 'impressions' ||
-      matchedMetric?.id === 'reach' ||
       matchedMetric?.id === 'grp_trp' ||
       matchedMetric?.id === 'video_views' ||
       lower.includes('impression') ||
       lower.includes('impressao') ||
       lower.includes('impressoes') ||
       lower.includes('impr') ||
-      lower.includes('views') ||
-      lower.includes('reach')
+      lower.includes('views')
     ) {
       mappedType = 'media_impressions';
       if (matchedChannel) {
@@ -209,6 +234,20 @@ export function inferColumnMappings(
     }
   }
 
+  // Pair exposure/reach/frequency columns with their spend channel when the
+  // column stem is identical (for example search_spend/search_reach).
+  const spendByStem = new Map(
+    mappings
+      .filter(mapping => mapping.mappedType === 'media_spend')
+      .map(mapping => [channelStem(mapping.columnName), mapping.channelName] as const)
+  );
+  for (const mapping of mappings) {
+    if (['media_impressions', 'media_clicks', 'media_reach', 'media_frequency'].includes(mapping.mappedType)) {
+      const pairedChannel = spendByStem.get(channelStem(mapping.columnName));
+      if (pairedChannel) mapping.channelName = pairedChannel;
+    }
+  }
+
   const seenSpendNames: Record<string, number> = {};
   for (const m of mappings) {
     if (m.mappedType === 'media_spend' && m.channelName && spendCounts[m.channelName] > 1) {
@@ -226,6 +265,10 @@ function formatChannelName(rawName: string): string {
     .replace(/_cost$/i, '')
     .replace(/_impressions?$/i, '')
     .replace(/_clicks?$/i, '')
+    .replace(/_reach$/i, '')
+    .replace(/_alcance$/i, '')
+    .replace(/_frequency$/i, '')
+    .replace(/_frequencia$/i, '')
     .replace(/_investimento$/i, '')
     .replace(/_/g, ' ')
     .trim();
@@ -252,4 +295,11 @@ function formatChannelName(rawName: string): string {
   }
 
   return clean || rawName;
+}
+
+function channelStem(rawName: string): string {
+  return rawName
+    .toLowerCase()
+    .replace(/(?:_|\s)+(spend|cost|investimento|gasto|impressions?|impressoes?|clicks?|cliques?|reach|alcance|frequency|frequencia|views?)$/i, '')
+    .replace(/[^a-z0-9]+/g, '');
 }

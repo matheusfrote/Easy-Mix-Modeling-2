@@ -36,15 +36,15 @@ export function calculateDataReadinessScore(
   } else if (monthsCoverage >= 24) {
     historyScore = 15;
     historyStatus = 'pass';
-    historyDetails = `${monthsCoverage} meses de dados históricos. Mínimo recomendado atendido para Geo MMM.`;
+    historyDetails = `${monthsCoverage} meses de dados históricos. Faixa recomendada para capturar ciclos anuais com maior robustez.`;
   } else if (monthsCoverage >= 12) {
     historyScore = 8;
     historyStatus = 'warning';
-    historyDetails = `${monthsCoverage} meses detectados. O modelo conseguirá rodar, mas intervalos de incerteza bayesiana serão alargados devido ao histórico limitado. Recomenda-se 24-36 meses.`;
+    historyDetails = `${monthsCoverage} meses detectados. O pipeline pode rodar se as demais pré-condições forem atendidas; avalie a incerteza posterior.`;
   } else {
     historyScore = 0;
     historyStatus = 'fail';
-    historyDetails = `Apenas ${monthsCoverage} meses. Mínimo recomendado de 24 meses para modelagem bayesiana Meridian, ou 12 meses sob condições muito restritas.`;
+    historyDetails = `Apenas ${monthsCoverage} meses. O histórico curto reduz a capacidade de identificar efeitos temporais; a decisão final depende dos diagnósticos posteriores.`;
   }
 
   items.push({
@@ -170,7 +170,7 @@ export function calculateDataReadinessScore(
   } else {
     missingScore = 0;
     missingStatus = 'fail';
-    missingDetails = `${nullPercentage.toFixed(1)}% de valores ausentes. Requer imputação antes do treino.`;
+    missingDetails = `${nullPercentage.toFixed(1)}% de valores ausentes. Corrija os dados na fonte antes do ajuste.`;
   }
 
   items.push({
@@ -223,7 +223,7 @@ export function calculateDataReadinessScore(
   } else {
     controlScore = 3;
     controlStatus = 'warning';
-    controlDetails = 'Nenhuma variável externa/controle fornecida. O modelo usará decomposição sazonal por Fourier.';
+    controlDetails = 'Nenhuma variável externa/controle fornecida; avalie o risco de confundimento antes de interpretar o modelo.';
   }
 
   items.push({
@@ -251,7 +251,7 @@ export function calculateDataReadinessScore(
   } else {
     obsScore = 0;
     obsStatus = 'fail';
-    obsDetails = `Apenas ${numRows} observações. Insuficiente para inferência robusta.`;
+    obsDetails = `${numRows} observações. O pipeline exige ao menos 15; volumes baixos podem elevar a incerteza.`;
   }
 
   items.push({
@@ -271,19 +271,19 @@ export function calculateDataReadinessScore(
   else if (totalScore >= 60) tier = 'Limitado';
   else tier = 'Insuficiente';
 
-  const isModelReady = validation.canRunModel;
+  const isModelReady = validation.canRunModel && !validation.isModelBlocked;
 
   let summary = '';
-  if (tier === 'Excelente') {
+  if (!isModelReady) {
+    summary = `Execução bloqueada: ${validation.blockingReason || 'corrija os erros de entrada indicados antes de ajustar o modelo'}.`;
+  } else if (tier === 'Excelente') {
     summary = 'Os dados possuem alta qualidade, excelente histórico e variabilidade adequada para inferência bayesiana precisa no Meridian.';
   } else if (tier === 'Bom') {
     summary = 'Dados bem estruturados e preparados para execução do modelo. Algumas advertências não-críticas foram identificadas.';
   } else if (tier === 'Limitado') {
     summary = 'Os dados atendem aos requisitos operacionais para rodar o modelo, mas as estimativas podem apresentar maior incerteza.';
   } else {
-    summary = validation.isModelBlocked
-      ? `Execução bloqueada por problema crítico: ${validation.blockingReason || 'Dados fundamentais ausentes'}.`
-      : 'Qualidade dos dados requer atenção. O modelo pode ser executado, mas recomenda-se avaliar os alertas de alta e média criticidade.';
+    summary = 'O pipeline pode ser executado, mas a qualidade dos dados requer atenção e as estimativas podem apresentar maior incerteza.';
   }
 
   return {

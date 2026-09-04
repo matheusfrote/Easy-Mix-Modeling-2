@@ -58,41 +58,20 @@ interface DashboardViewProps {
 
 const COLORS = ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2'];
 
+function formatKpi(value: unknown, kpiType?: MeridianModelResults['kpiType']): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'N/D';
+  return new Intl.NumberFormat('pt-BR', {
+    ...(kpiType === 'non_revenue' ? {} : { style: 'currency', currency: 'BRL' }),
+    notation: 'compact',
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 // Memoized Decomposition Pie Chart Component
 const DecompositionPieChart = memo<{
   data: Array<{ name: string; value: number; share: number; fill: string }>;
   baselineShare: number;
 }>(({ data, baselineShare }) => {
-  const renderCustomizedPieLabel = ({
-    cx,
-    cy,
-    midAngle,
-    innerRadius,
-    outerRadius,
-    percent,
-    share
-  }: any) => {
-    const RADIAN = Math.PI / 180;
-    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-    const val = share !== undefined ? share : (percent || 0) * 100;
-    if (val < 4) return null;
-
-    return (
-      <text
-        x={x}
-        y={y}
-        fill="#ffffff"
-        textAnchor="middle"
-        dominantBaseline="central"
-        className="text-[11px] font-bold select-none drop-shadow-sm"
-      >
-        {`${val.toFixed(0)}%`}
-      </text>
-    );
-  };
-
   return (
     <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4 transition-colors min-w-0">
       <div>
@@ -123,7 +102,7 @@ const DecompositionPieChart = memo<{
               paddingAngle={3}
               dataKey="value"
               nameKey="name"
-              label={renderCustomizedPieLabel}
+              label={false}
               labelLine={false}
               isAnimationActive={false}
             >
@@ -269,13 +248,14 @@ const EXTENDED_CHANNEL_COLORS = [
 
 // Memoized Response Curve Chart Component with Multi-Select Channel Bar
 const ChannelResponseCurveChart = memo<{
-  channels: Array<{ channelName: string; roi: number; spend?: number; marginalRoi?: number }>;
+  channels: Array<{ channelName: string; roi: number | null; spend?: number | null; marginalRoi?: number | null }>;
   responseCurves: Record<string, any>;
+  kpiType?: MeridianModelResults['kpiType'];
   selectedChannels: string[];
   onToggleChannel: (name: string) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
-}>(({ channels, responseCurves, selectedChannels, onToggleChannel, onSelectAll, onDeselectAll }) => {
+}>(({ channels, responseCurves, kpiType, selectedChannels, onToggleChannel, onSelectAll, onDeselectAll }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -321,12 +301,12 @@ const ChannelResponseCurveChart = memo<{
       const rawPoints = responseCurves[chName]?.points || [];
       const singleObj = channels.find(c => c.channelName === chName) || null;
       const data = rawPoints.map((pt: any) => ({
-        spend: pt.spend ?? 0,
-        spendMultiplier: pt.spendMultiplier ?? 1,
-        incrementalKpi: pt.incrementalKpi ?? pt.kpi ?? 0,
-        marginalRoi: pt.marginalRoi ?? 0,
-        roi: pt.roi ?? 0,
-        [chName]: pt.incrementalKpi ?? pt.kpi ?? 0
+        spend: pt.spend,
+        spendMultiplier: pt.spendMultiplier,
+        incrementalKpi: pt.incrementalKpi ?? pt.incrementalOutcome,
+        marginalRoi: pt.marginalRoi,
+        roi: pt.roi,
+        [chName]: pt.incrementalKpi ?? pt.incrementalOutcome
       }));
       return { chartData: data, isSingleChannel: true, singleChannelObj: singleObj };
     }
@@ -337,20 +317,18 @@ const ChannelResponseCurveChart = memo<{
 
     const data = basePoints.map((basePt: any, idx: number) => {
       const row: any = {
-        spendMultiplier: basePt.spendMultiplier ?? 1,
-        multiplierLabel: `${(basePt.spendMultiplier ?? 1).toFixed(1)}x`,
+        spendMultiplier: basePt.spendMultiplier,
+        multiplierLabel: Number.isFinite(basePt.spendMultiplier) ? `${basePt.spendMultiplier.toFixed(1)}x` : 'N/D',
       };
 
       selectedChannels.forEach(chName => {
         const pt = responseCurves[chName]?.points?.[idx];
         if (pt) {
-          const inc = pt.incrementalKpi ?? pt.kpi ?? 0;
+          const inc = pt.incrementalKpi ?? pt.incrementalOutcome;
           row[chName] = inc;
-          row[`${chName}_spend`] = pt.spend ?? 0;
-          row[`${chName}_roi`] = pt.roi ?? 0;
-          row[`${chName}_mroi`] = pt.marginalRoi ?? 0;
-        } else {
-          row[chName] = 0;
+          row[`${chName}_spend`] = pt.spend;
+          row[`${chName}_roi`] = pt.roi;
+          row[`${chName}_mroi`] = pt.marginalRoi;
         }
       });
       return row;
@@ -366,15 +344,15 @@ const ChannelResponseCurveChart = memo<{
           <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             <span className="flex items-center">
-              <span>Como o investimento se converte em vendas adicionais? (Curva de Resposta)</span>
+              <span>Como o investimento se converte em resultado incremental? (Curva de Resposta)</span>
               <InfoTooltip
                 title="Curva de Resposta & Retornos Decrescentes"
-                content="Mostra a relação entre quanto você gasta e quanto vende. No início a curva sobe rápido, mas depois desacelera quando a audiência fica saturada (onde cada real extra rende menos)."
+                content="Mostra a relação posterior entre investimento e resultado incremental nos níveis avaliados pelo Analyzer, incluindo retornos decrescentes quando presentes."
               />
             </span>
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Compare o comportamento de saturação e retorno entre todos, um ou múltiplos canais.
+            Compare as curvas de resposta posteriores entre todos, um ou múltiplos canais.
           </p>
         </div>
 
@@ -385,7 +363,7 @@ const ChannelResponseCurveChart = memo<{
               <span>Canais:</span>
               <InfoTooltip
                 title="Seleção de Curva de Resposta"
-                content="Selecione todos, um ou múltiplos canais para comparar simultaneamente a resposta de vendas e saturação."
+                content="Selecione canais para comparar os pontos de investimento e KPI incremental retornados pelo Analyzer."
               />
             </span>
             <button
@@ -400,7 +378,7 @@ const ChannelResponseCurveChart = memo<{
                   {allSelected
                     ? `Todos os canais (${channels.length})`
                     : selectedChannels.length === 1
-                    ? `${selectedChannels[0]} (ROI: ${(channels.find(c => c.channelName === selectedChannels[0])?.roi || 0).toFixed(2)}x)`
+                    ? `${selectedChannels[0]} (ROI: ${Number.isFinite(channels.find(c => c.channelName === selectedChannels[0])?.roi) ? `${channels.find(c => c.channelName === selectedChannels[0])!.roi.toFixed(2)}${kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'})`
                     : selectedChannels.length > 1
                     ? `${selectedChannels.length} de ${channels.length} canais`
                     : 'Nenhum canal selecionado'}
@@ -482,7 +460,7 @@ const ChannelResponseCurveChart = memo<{
                         <span className="truncate">{c.channelName}</span>
                       </div>
                       <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 shrink-0 ml-2">
-                        ROI {c.roi.toFixed(2)}x
+                        ROI {Number.isFinite(c.roi) ? `${Number(c.roi).toFixed(2)}${kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'}
                       </span>
                     </label>
                   );
@@ -543,9 +521,11 @@ const ChannelResponseCurveChart = memo<{
                 />
               )}
               <YAxis
-                tickFormatter={val => `R$ ${(val / 1000).toFixed(0)}k`}
+                tickFormatter={val => kpiType === 'non_revenue'
+                  ? Number(val).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
+                  : `R$ ${(val / 1000).toFixed(0)}k`}
                 width={48}
-                label={{ value: 'Vendas Incrementais (R$)', angle: -90, position: 'insideLeft', offset: 12, fontSize: 10, fill: '#64748b' }}
+                label={{ value: kpiType === 'non_revenue' ? 'KPI Incremental' : 'Resultado Incremental (R$)', angle: -90, position: 'insideLeft', offset: 12, fontSize: 10, fill: '#64748b' }}
                 tick={{ fontSize: 10, fill: '#64748b' }}
               />
               <Tooltip
@@ -554,8 +534,8 @@ const ChannelResponseCurveChart = memo<{
                   const spend = item?.payload?.[`${name}_spend`] ?? item?.payload?.spend;
                   const spendStr = spend !== undefined ? ` (Verba: R$ ${(spend / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}k)` : '';
                   return [
-                    `R$ ${Number(val).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}${spendStr}`,
-                    name === 'incrementalKpi' ? (selectedChannels[0] || 'Vendas Estimadas') : name
+                    `${kpiType === 'non_revenue' ? '' : 'R$ '}${Number(val).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}${spendStr}`,
+                    name === 'incrementalKpi' ? (selectedChannels[0] || 'KPI incremental') : name
                   ];
                 }}
                 labelFormatter={label => isSingleChannel
@@ -601,14 +581,14 @@ const ChannelResponseCurveChart = memo<{
           <p>
             {isSingleChannel && singleChannelObj ? (
               <>
-                <strong>Canal ativo:</strong> {singleChannelObj.channelName} com ROI de <strong>{singleChannelObj.roi.toFixed(2)}x</strong> e mROI de <strong>{singleChannelObj.marginalRoi?.toFixed(2) || '0.00'}x</strong>. A curva ilustra a velocidade de saturação e a conversão de cada real adicional.
+                <strong>Canal ativo:</strong> {singleChannelObj.channelName} com ROI de <strong>{Number.isFinite(singleChannelObj.roi) ? `${Number(singleChannelObj.roi).toFixed(2)}${kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'}</strong> e mROI de <strong>{Number.isFinite(singleChannelObj.marginalRoi) ? `${Number(singleChannelObj.marginalRoi).toFixed(2)}${kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'}</strong>. A curva contém somente pontos posteriores retornados pelo Analyzer.
               </>
             ) : selectedChannels.length > 1 ? (
               <>
-                <strong>Comparando {selectedChannels.length} canais:</strong> A inclinação de cada curva no gráfico evidencia a eficiência de resposta das mídias. Canais com curvas mais íngremes geram mais vendas adicionais antes de entrar na faixa de saturação.
+                <strong>Comparando {selectedChannels.length} canais:</strong> A inclinação visualiza a resposta incremental nos níveis de spend avaliados pelo Analyzer; nenhuma classificação adicional é inferida no navegador.
               </>
             ) : (
-              <>Utilize a barra de seleção acima para escolher todos, um ou múltiplos canais e visualizar suas curvas de saturação.</>
+              <>Utilize a seleção acima para visualizar as curvas de resposta posteriores disponíveis.</>
             )}
           </p>
         </div>
@@ -680,17 +660,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   }, [timeSeries, activeStartDate, activeEndDate]);
 
-  const totalWeeks = timeSeries.length || 1;
-  const filteredWeeks = filteredTimeSeries.length || 1;
-  const isDateFiltered = useMemo(() => {
-    if (!minDate || !maxDate || !timeSeries.length) return false;
-    return (
-      (activeStartDate && activeStartDate > minDate) ||
-      (activeEndDate && activeEndDate < maxDate)
-    );
-  }, [activeStartDate, activeEndDate, minDate, maxDate, timeSeries.length]);
-
-  // Aggregate metrics over the filtered interval
+  // Scientific metrics are never recomputed in the browser. Date filtering is
+  // restricted to the observed/predicted time-series visualization.
   const {
     filteredTotalSpend,
     filteredTotalRevenue,
@@ -702,68 +673,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   } = useMemo(() => {
     if (!results) {
       return {
-        filteredTotalSpend: 0,
-        filteredTotalRevenue: 0,
-        filteredBaseline: 0,
-        filteredControls: 0,
-        filteredMedia: 0,
-        filteredBlendedRoi: 0,
+        filteredTotalSpend: null,
+        filteredTotalRevenue: null,
+        filteredBaseline: null,
+        filteredControls: null,
+        filteredMedia: null,
+        filteredBlendedRoi: null,
         filteredChannelsList: []
       };
     }
 
-    const baselineSum = filteredTimeSeries.reduce((sum, t) => sum + (t.baseline || 0), 0);
-    const controlsSum = filteredTimeSeries.reduce((sum, t) => sum + (t.controls || 0), 0);
-    const mediaSum = filteredTimeSeries.reduce((sum, t) => sum + (t.media || 0), 0);
-    const revenueSum = filteredTimeSeries.reduce((sum, t) => sum + (t.actual || 0), 0);
-
-    const fullMedia = results.diagnostics.mediaContribution || 1;
-
-    // Filter each channel
-    const channelsCalc = results.channels.map(c => {
-      // Channel spend in filtered weeks
-      const chSpend = filteredTimeSeries.reduce((sum, t) => {
-        if (t.channelSpends && t.channelSpends[c.channelName] !== undefined) {
-          return sum + t.channelSpends[c.channelName];
-        }
-        return sum + ((t.spend || (results.totalSpend / totalWeeks)) * (c.spend / (results.totalSpend || 1)));
-      }, 0);
-
-      // Channel incremental KPI in filtered weeks
-      const chIncKpi = mediaSum * (c.incrementalKpi / fullMedia);
-      const chRoi = chSpend > 0 ? chIncKpi / chSpend : c.roi;
-
-      return {
-        ...c,
-        filteredSpend: chSpend,
-        filteredIncrementalKpi: chIncKpi,
-        filteredRoi: chRoi
-      };
-    });
-
-    const totalSpendSum = channelsCalc.reduce((sum, c) => sum + c.filteredSpend, 0);
-
-    // Recompute shares: both % of media and % of overall revenue
-    const finalChannels = channelsCalc.map(c => ({
+    const finalChannels = results.channels.map(c => ({
       ...c,
-      filteredSpendShare: totalSpendSum > 0 ? (c.filteredSpend / totalSpendSum) * 100 : 0,
-      filteredMediaKpiShare: mediaSum > 0 ? (c.filteredIncrementalKpi / mediaSum) * 100 : 0,
-      filteredKpiShare: mediaSum > 0 ? (c.filteredIncrementalKpi / mediaSum) * 100 : (revenueSum > 0 ? (c.filteredIncrementalKpi / revenueSum) * 100 : 0),
-      filteredTotalRevenueShare: revenueSum > 0 ? (c.filteredIncrementalKpi / revenueSum) * 100 : 0
+      filteredSpend: c.spend,
+      filteredIncrementalKpi: c.incrementalKpi,
+      filteredRoi: c.roi,
+      filteredSpendShare: c.spendShare,
+      filteredMediaKpiShare: c.kpiShare,
+      filteredKpiShare: c.kpiShare,
+      filteredTotalRevenueShare: c.kpiShare
     }));
 
-    const blendedRoiCalc = totalSpendSum > 0 ? mediaSum / totalSpendSum : results.blendedRoi;
-
     return {
-      filteredTotalSpend: totalSpendSum,
-      filteredTotalRevenue: revenueSum,
-      filteredBaseline: baselineSum,
-      filteredControls: controlsSum,
-      filteredMedia: mediaSum,
-      filteredBlendedRoi: blendedRoiCalc,
+      filteredTotalSpend: results.totalSpend,
+      filteredTotalRevenue: results.totalKpi,
+      filteredBaseline: Number.isFinite(results.diagnostics?.baselineContribution) ? results.diagnostics.baselineContribution : null,
+      filteredControls: Number.isFinite(results.diagnostics?.controlsContribution) ? results.diagnostics.controlsContribution : null,
+      filteredMedia: Number.isFinite(results.diagnostics?.mediaContribution) ? results.diagnostics.mediaContribution : null,
+      filteredBlendedRoi: results.blendedRoi,
       filteredChannelsList: finalChannels
     };
-  }, [results, filteredTimeSeries, totalWeeks]);
+  }, [results]);
 
   const topChannelData = useMemo(() => {
     if (!filteredChannelsList.length) return undefined;
@@ -772,7 +712,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const saturatedChannelData = useMemo(() => {
     if (!filteredChannelsList.length) return undefined;
-    return filteredChannelsList.find(c => c.channelName === results?.saturatedChannel) || filteredChannelsList[filteredChannelsList.length - 1];
+    return filteredChannelsList.find(c => c.channelName === results?.saturatedChannel);
   }, [filteredChannelsList, results]);
 
   const bestOppData = useMemo(() => {
@@ -783,24 +723,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Memoized Data for Waterfall / Decomposition (Filtered)
   const decompositionData = useMemo(() => {
     if (!results) return [];
-    const baseShare = filteredTotalRevenue > 0 ? (filteredBaseline / filteredTotalRevenue) * 100 : 0;
-    const ctrlShare = filteredTotalRevenue > 0 ? (filteredControls / filteredTotalRevenue) * 100 : 0;
+    const baseShare = Number.isFinite(results.diagnostics?.baselineShare) ? results.diagnostics.baselineShare : null;
+    const ctrlShare = Number.isFinite(results.diagnostics?.controlsShare) ? results.diagnostics.controlsShare : null;
     return [
-      { name: 'Vendas Naturais (Orgânico)', value: filteredBaseline, share: baseShare, fill: '#64748b' },
-      { name: 'Fatores Externos & Feriados', value: filteredControls, share: ctrlShare, fill: '#94a3b8' },
+      ...(filteredBaseline !== null && baseShare !== null ? [{ name: 'Vendas Naturais (Orgânico)', value: filteredBaseline, share: baseShare, fill: '#64748b' }] : []),
+      ...(filteredControls !== null && ctrlShare !== null ? [{ name: 'Fatores Externos & Feriados', value: filteredControls, share: ctrlShare, fill: '#94a3b8' }] : []),
       ...filteredChannelsList.map((c, idx) => ({
         name: c.channelName,
         value: c.filteredIncrementalKpi,
-        share: c.filteredTotalRevenueShare || c.filteredKpiShare,
+        share: c.filteredTotalRevenueShare,
         fill: COLORS[idx % COLORS.length]
-      }))
+      })).filter(item => Number.isFinite(item.value) && Number.isFinite(item.share))
     ];
   }, [results, filteredBaseline, filteredControls, filteredTotalRevenue, filteredChannelsList]);
 
   // Memoized Spend vs Contribution Share comparison (Filtered)
   const spendVsKpiData = useMemo(() => {
     if (!results) return [];
-    return filteredChannelsList.map(c => ({
+    return filteredChannelsList.filter(c =>
+      Number.isFinite(c.filteredSpendShare)
+      && Number.isFinite(c.filteredMediaKpiShare)
+      && Number.isFinite(c.filteredTotalRevenueShare)
+      && Number.isFinite(c.filteredRoi)
+      && Number.isFinite(c.marginalRoi)
+    ).map(c => ({
       name: c.channelName,
       'Investimento (% da Verba)': Number(c.filteredSpendShare.toFixed(1)),
       'Contribuição em Vendas (% da Mídia)': Number(c.filteredMediaKpiShare.toFixed(1)),
@@ -838,7 +784,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     bestOpportunityChannel
   } = results;
 
-  const baselineShare = filteredTotalRevenue > 0 ? (filteredBaseline / filteredTotalRevenue) * 100 : diagnostics.baselineShare;
+  const baselineShare = Number.isFinite(diagnostics.baselineShare) ? diagnostics.baselineShare : null;
 
   return (
     <div id="dashboard-view" className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 max-w-7xl w-full mx-auto min-w-0">
@@ -857,7 +803,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
       {/* Date Range Filter Banner Bar */}
-      {availableDates.length > 0 && dateRange && onChangeDateRange && (
+      {timeSeries.length > 0 && availableDates.length > 0 && dateRange && onChangeDateRange && (
         <GlobalDateRangeFilter
           availableDates={availableDates}
           dateRange={dateRange}
@@ -869,42 +815,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 1. Executive Summary Bar (Resumo do seu Marketing) with Simple Tooltips */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
         <MetricCard
-          title={isDateFiltered ? 'Faturamento no Período' : 'Faturamento Total'}
-          value={`R$ ${(filteredTotalRevenue / 1000000).toFixed(2)}M`}
-          subtitle={isDateFiltered ? `${filteredWeeks} semanas selecionadas` : 'Histórico total analisado'}
+          title={results.kpiType === 'non_revenue' ? 'KPI Total' : 'Receita Total'}
+          value={formatKpi(filteredTotalRevenue, results.kpiType)}
+          subtitle="Histórico total analisado pelo Meridian"
           icon={TrendingUp}
           iconColor="text-emerald-600 dark:text-emerald-400"
           iconBg="bg-emerald-50 dark:bg-emerald-950/60"
-          tooltipTitle="Faturamento Total no Período"
-          tooltipText="Soma de todas as vendas ou faturamento gerado pela sua empresa no período selecionado no filtro de datas."
+          tooltipTitle="KPI Total no Período"
+          tooltipText="Soma da variável de resultado configurada para o modelo no histórico completo analisado."
         />
 
         <MetricCard
-          title={isDateFiltered ? 'Investimento no Período' : 'Investimento Total'}
-          value={`R$ ${(filteredTotalSpend / 1000).toFixed(0)}k`}
+          title="Investimento Total"
+          value={Number.isFinite(filteredTotalSpend) ? `R$ ${((filteredTotalSpend as number) / 1000).toFixed(0)}k` : 'N/D'}
           subtitle={`${channels.length} canais analisados`}
           icon={DollarSign}
           iconColor="text-blue-600 dark:text-blue-400"
           iconBg="bg-blue-50 dark:bg-blue-950/60"
           tooltipTitle="Investimento em Publicidade"
-          tooltipText="Total financeiro investido na soma de todos os canais de mídia paga (Google, Meta, TV, etc.) durante as semanas selecionadas."
+          tooltipText="Total financeiro investido na soma de todos os canais de mídia paga no histórico completo analisado pelo modelo."
         />
 
         <MetricCard
           title="Retorno Médio (ROI)"
-          value={`${(filteredBlendedRoi ?? 0).toFixed(2)}x`}
-          subtitle="Para cada R$ 1 investido"
+          value={Number.isFinite(filteredBlendedRoi) ? `${(filteredBlendedRoi as number).toFixed(2)}${results.kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'}
+          subtitle={results.kpiType === 'non_revenue' ? 'Unidades incrementais por real' : 'Para cada R$ 1 investido'}
           icon={Zap}
           iconColor="text-indigo-600 dark:text-indigo-400"
           iconBg="bg-indigo-50 dark:bg-indigo-950/60"
           tooltipTitle="Retorno Médio Global (ROI)"
-          tooltipText="Retorno sobre o Investimento global em mídia no período. Um ROI de 3.20x significa que, em média, cada R$ 1,00 gasto em publicidade gerou R$ 3,20 em vendas incrementais diretas."
+          tooltipText={results.kpiType === 'non_revenue'
+            ? 'Resultado incremental do KPI por real investido em mídia, calculado pelo Analyzer.'
+            : 'Retorno sobre o investimento global em mídia: receita incremental estimada por real investido.'}
         />
 
         <MetricCard
           title="Canal Mais Eficiente"
           value={mostEfficientChannel || 'N/A'}
-          subtitle={`ROI de ${topChannelData?.filteredRoi ? topChannelData.filteredRoi.toFixed(2) : (topChannelData?.roi ? topChannelData.roi.toFixed(2) : '0.00')}x`}
+          subtitle={Number.isFinite(topChannelData?.filteredRoi) ? `ROI de ${topChannelData!.filteredRoi.toFixed(2)}${results.kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'ROI indisponível'}
           icon={Award}
           iconColor="text-emerald-600 dark:text-emerald-400"
           iconBg="bg-emerald-50 dark:bg-emerald-950/60"
@@ -913,25 +861,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         />
 
         <MetricCard
-          title="Canal Saturado"
-          value={saturatedChannel || 'Nenhum'}
-          subtitle="Retornos decrescentes"
+          title="Saturação Hill típica"
+          value={saturatedChannel || 'Indisponível'}
+          subtitle="Sem inferência local"
           icon={AlertCircle}
           iconColor="text-amber-600 dark:text-amber-400"
           iconBg="bg-amber-50 dark:bg-amber-950/60"
-          tooltipTitle="Canal em Zona de Saturação"
-          tooltipText="Canal que já alcançou a parte plana da curva de retorno (onde o público foi muito impactado). Aumentar a verba aqui gerará pouco ganho adicional."
+          tooltipTitle="Nível da função de Hill"
+          tooltipText="Média posterior da função de Hill no ponto oficial mais próximo da exposição histórica mediana do canal."
         />
 
         <MetricCard
-          title="Maior Oportunidade"
+          title="Maior mROI"
           value={bestOpportunityChannel || 'N/A'}
-          subtitle="Para onde mover verba"
+          subtitle="Sinal marginal observado"
           icon={Sparkles}
           iconColor="text-blue-600 dark:text-blue-400"
           iconBg="bg-blue-50 dark:bg-blue-950/60"
           tooltipTitle="Maior Oportunidade de Crescimento"
-          tooltipText="Canal com alto retorno marginal (mROI) e espaço para crescer antes de saturar. É o destino ideal para receber remanejamento de orçamento."
+          tooltipText="Canal com maior retorno marginal observado. A decisão de realocação pertence ao BudgetOptimizer e ao Decision Engine, não a este ranking isolado."
         />
       </div>
 
@@ -975,50 +923,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 />
               </span>
               <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800 shrink-0">
-                ROI {topChannelData?.roi ? topChannelData.roi.toFixed(2) : '0.00'}x
+                ROI {Number.isFinite(topChannelData?.roi) ? `${topChannelData!.roi.toFixed(2)}${results.kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'}
               </span>
             </div>
             <h4 className="text-sm font-bold text-white truncate">{mostEfficientChannel || 'Nenhum'}</h4>
             <p className="text-xs text-slate-200 leading-relaxed">
-              Apresenta o maior retorno proporcional entre todos os canais. Para cada R$ 1,00 investido, gerou aproximadamente R$ {topChannelData?.roi ? topChannelData.roi.toFixed(2) : '0.00'} em vendas adicionais.
+              Apresenta o maior retorno proporcional entre os canais segundo o Analyzer do Meridian.
             </p>
           </div>
 
           <div className="bg-slate-800/80 p-3.5 rounded-lg border border-slate-700/80 space-y-1.5 min-w-0">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wide flex items-center">
-                <span>Próximo da Saturação</span>
+                <span>Saturação Hill típica</span>
                 <InfoTooltip
                   title="Nível de Saturação"
-                  content="Porcentagem da capacidade de resposta já atingida. Acima de 60-70%, a audiência foi amplamente atingida e novos investimentos rendem pouco."
+                  content="Valor posterior de Analyzer.hill_curves() no ponto mais próximo da exposição histórica mediana; a UI não reconstrói a curva."
                 />
               </span>
               <span className="text-[10px] font-mono text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800 shrink-0">
-                Saturação: {saturatedChannelData?.saturationLevel !== undefined ? saturatedChannelData.saturationLevel.toFixed(0) : '0'}%
+                Saturação: {Number.isFinite(saturatedChannelData?.saturationLevel) ? `${(saturatedChannelData!.saturationLevel * 100).toFixed(0)}%` : 'N/D'}
               </span>
             </div>
-            <h4 className="text-sm font-bold text-white truncate">{saturatedChannel || 'Nenhum'}</h4>
+            <h4 className="text-sm font-bold text-white truncate">{saturatedChannel || 'Indisponível'}</h4>
             <p className="text-xs text-slate-200 leading-relaxed">
-              Está operando perto do teto de retorno. Aumentar ainda mais a verba neste canal tende a gerar ganhos menores do que o histórico médio.
+              {saturatedChannel ? 'Maior nível típico entre as curvas de Hill oficiais dos canais.' : 'O contrato atual não fornece a curva de Hill necessária; nenhuma classificação local foi criada.'}
             </p>
           </div>
 
           <div className="bg-slate-800/80 p-3.5 rounded-lg border border-slate-700/80 space-y-1.5 min-w-0">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold text-blue-400 uppercase tracking-wide flex items-center">
-                <span>Potencial de Escala</span>
+                <span>Maior mROI observado</span>
                 <InfoTooltip
                   title="Retorno Marginal (mROI)"
-                  content="Mede o retorno gerado pelo PRÓXIMO real investido. Se o mROI é alto, o canal ainda tem grande espaço para receber mais dinheiro."
+                  content="Mede o retorno estimado para uma pequena variação de investimento. Isoladamente, mROI não constitui recomendação de aumento."
                 />
               </span>
               <span className="text-[10px] font-mono text-blue-300 bg-blue-950/80 px-2 py-0.5 rounded border border-blue-800 shrink-0">
-                mROI {bestOppData?.marginalRoi !== undefined ? bestOppData.marginalRoi.toFixed(2) : '0.00'}x
+                mROI {Number.isFinite(bestOppData?.marginalRoi) ? `${bestOppData!.marginalRoi.toFixed(2)}${results.kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'}
               </span>
             </div>
             <h4 className="text-sm font-bold text-white truncate">{bestOpportunityChannel || 'Nenhum'}</h4>
             <p className="text-xs text-slate-200 leading-relaxed">
-              Apresenta curva de resposta favorável. O modelo indica que transferir verba para este canal gerará mais vendas adicionais imediatas.
+              Possui o maior mROI observado. Consulte o BudgetOptimizer para qualquer recomendação de transferência de verba.
             </p>
           </div>
         </div>
@@ -1026,10 +974,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* 3. Question-Driven Visualizations */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 min-w-0">
-        <DecompositionPieChart
-          data={decompositionData}
-          baselineShare={baselineShare}
-        />
+        {baselineShare !== null && decompositionData.length > 0 ? (
+          <DecompositionPieChart data={decompositionData as Array<{ name: string; value: number; share: number; fill: string }>} baselineShare={baselineShare} />
+        ) : (
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 text-xs text-slate-500">
+            Decomposição de baseline indisponível no resultado científico deste modelo.
+          </div>
+        )}
 
         <SpendVsContributionChart
           data={spendVsKpiData}
@@ -1048,6 +999,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <ChannelResponseCurveChart
         channels={channels}
         responseCurves={results.responseCurves || {}}
+        kpiType={results.kpiType}
         selectedChannels={selectedResponseChannels}
         onToggleChannel={handleToggleResponseChannel}
         onSelectAll={handleSelectAllResponseChannels}
@@ -1068,13 +1020,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span>Aderência Histórica (R²)</span>
                 <InfoTooltip
                   title="Aderência Histórica (R²)"
-                  content="Mede a precisão com que a previsão matemática do modelo acompanha as variações reais das suas vendas. Acima de 80% indica altíssima confiabilidade."
+                  content="Mede quanto da variação histórica é reproduzida pelo modelo. Deve ser interpretado com os erros preditivos, convergência e intervalos de credibilidade."
                 />
               </span>
               <div className="text-base font-bold text-slate-900 dark:text-white font-mono mt-0.5">
-                {(((diagnostics?.rSquared ?? 0)) * 100).toFixed(1)}%
+                {Number.isFinite(diagnostics?.rSquared) ? `${(diagnostics.rSquared * 100).toFixed(1)}%` : 'N/D'}
               </div>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Excelente poder explicativo</span>
+              <span className="text-[10px] text-slate-500">Analyzer.predictive_accuracy()</span>
             </div>
 
             <div className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 min-w-0">
@@ -1082,13 +1034,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span>Erro Médio (MAPE)</span>
                 <InfoTooltip
                   title="Erro Percentual Médio (MAPE)"
-                  content="Desvio percentual médio entre as vendas previstas pelo modelo e as vendas reais observadas. Abaixo de 10% indica alta precisão."
+                  content="Desvio percentual médio entre o resultado previsto pelo modelo e o resultado real observado; deve ser interpretado no contexto do KPI e do período analisado."
                 />
               </span>
               <div className="text-base font-bold text-slate-900 dark:text-white font-mono mt-0.5">
-                {(diagnostics?.mape ?? 0).toFixed(1)}%
+                {Number.isFinite(diagnostics?.mape) ? `${diagnostics.mape.toFixed(1)}%` : 'N/D'}
               </div>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Baixa taxa de desvio</span>
+              <span className="text-[10px] text-slate-500">Analyzer.predictive_accuracy()</span>
             </div>
 
             <div className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 min-w-0">
@@ -1096,13 +1048,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span>Convergência MCMC (R-hat)</span>
                 <InfoTooltip
                   title="Convergência Bayesiana (R-hat / Gelman-Rubin)"
-                  content="Verifica se todas as simulações estatísticas do algoritmo MCMC convergiram para o mesmo resultado estável. Valores < 1.05 confirmam que o modelo convergiu perfeitamente."
+                  content="Resume a concordância entre as cadeias MCMC. O contrato segue o limiar padrão do Analyzer: R-hat máximo abaixo de 1,2 indica convergência aproximada."
                 />
               </span>
               <div className="text-base font-bold text-slate-900 dark:text-white font-mono mt-0.5">
-                {(diagnostics?.gelmanRubinRhat ?? (diagnostics as any)?.gelmanRubinMax ?? 1.02).toFixed(3)}
+                {Number.isFinite(diagnostics?.gelmanRubinRhat) ? Number(diagnostics.gelmanRubinRhat).toFixed(3) : 'N/D'}
               </div>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">R̂ &lt; 1.05 (Cadeias estáveis)</span>
+              <span className="text-[10px] text-slate-500">Diagnóstico do posterior</span>
             </div>
 
             <div className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 min-w-0">
@@ -1110,11 +1062,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span>Amostragem Efetiva (ESS)</span>
                 <InfoTooltip
                   title="Amostragem Efetiva (ESS)"
-                  content="Quantidade de amostras estatísticas independentes geradas pelo modelo. Valores acima de 400 garantem que as estimativas de ROI são matematicamente sólidas."
+                  content="Quantidade estimada de amostras independentes após considerar a autocorrelação das cadeias. Deve ser interpretada em conjunto com os demais diagnósticos."
                 />
               </span>
               <div className="text-base font-bold text-slate-900 dark:text-white font-mono mt-0.5">
-                {diagnostics?.effectiveSampleSize ?? (diagnostics as any)?.effectiveSampleSizeMin ?? 1200}
+                {typeof diagnostics?.effectiveSampleSize === 'number' ? diagnostics.effectiveSampleSize : 'N/D'}
               </div>
               <span className="text-[10px] text-slate-500">Amostras independentes</span>
             </div>

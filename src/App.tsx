@@ -67,6 +67,13 @@ const ViewLoadingFallback = () => (
   </div>
 );
 
+function inferKpiType(columnName: string): MeridianModelConfig['targetKpiType'] {
+  const normalized = columnName.trim().toLowerCase();
+  if (/(revenue|receita|faturamento|gmv)/.test(normalized)) return 'revenue';
+  if (/(sales|vendas|units|unidades)/.test(normalized)) return 'sales';
+  return 'conversions';
+}
+
 export default function App() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [currentView, setCurrentView] = useState<NavView>(() => {
@@ -160,28 +167,13 @@ export default function App() {
     const hydrateState = async () => {
       try {
         let savedDataset = await localforage.getItem<UploadResponse>('easy_mix_dataset');
-        const savedModelResults = await localforage.getItem<MeridianModelResults>('easy_mix_model_results');
         const savedView = await localforage.getItem<NavView>('easy_mix_current_view');
         const savedDateRange = await localforage.getItem<DateRangeFilter>('easy_mix_date_range');
 
-        // Check if demonstration data should be loaded
-        if (!savedDataset) {
-          try {
-            const res = await fetch('/demo-data.json');
-            if (res.ok) {
-              const demoData = await res.json();
-              if (!savedDataset && demoData.dataset) {
-                savedDataset = demoData.dataset;
-                await localforage.setItem('easy_mix_dataset', savedDataset);
-              }
-            }
-          } catch (e) {
-            console.warn('Could not fetch demo data', e);
-          }
-        }
-
         if (savedDataset) setCurrentDataset(savedDataset);
-        if (savedModelResults) setModelResults(savedModelResults);
+        // A persisted DTO is not sufficient: optimizer and What-If require the
+        // live posterior referenced by modelId in the server process.
+        await localforage.removeItem('easy_mix_model_results');
         if (savedView && !getNavViewFromHash()) setCurrentView(savedView);
         if (savedDateRange) setDateRange(savedDateRange);
       } catch (err) {
@@ -213,16 +205,6 @@ export default function App() {
 
   useEffect(() => {
     if (isHydrated) {
-      if (modelResults) {
-        localforage.setItem('easy_mix_model_results', modelResults).catch(console.error);
-      } else {
-        localforage.removeItem('easy_mix_model_results').catch(console.error);
-      }
-    }
-  }, [modelResults, isHydrated]);
-
-  useEffect(() => {
-    if (isHydrated) {
       localforage.setItem('easy_mix_date_range', dateRange).catch(console.error);
     }
   }, [dateRange, isHydrated]);
@@ -244,13 +226,19 @@ export default function App() {
 
   const handleUploadSuccess = (response: UploadResponse) => {
     setCurrentDataset(response);
-    showToast('Dados importados e analisados com sucesso!');
+    setModelResults(null);
+    apiClient.clearModelCache();
+    showToast(response.readiness.isModelReady
+      ? 'Dados importados e validados. Revise o mapeamento antes de ajustar o modelo.'
+      : 'Dados importados, mas existem bloqueios que precisam ser corrigidos.');
     setCurrentView('readiness');
   };
 
   const handleSaveMappings = async (newMappings: ColumnMapping[]) => {
     try {
       await apiClient.saveMappings(newMappings);
+      setModelResults(null);
+      apiClient.clearModelCache();
       if (currentDataset) {
         const valRes = await apiClient.validateData(undefined, newMappings);
         setCurrentDataset({
@@ -260,17 +248,19 @@ export default function App() {
           readiness: valRes.readiness
         });
       }
-      showToast('Mapeamento de colunas salvo com sucesso!');
-    } catch (e) {
-      console.error(e);
+      showToast('Mapeamento salvo. O modelo anterior foi invalidado.');
+    } catch (e: any) {
+      showToast(`Erro ao salvar mapeamento: ${e?.message || 'falha na API'}`);
     }
   };
 
   const handleSanitizeData = async () => {
     if (!currentDataset) return;
     try {
-      showToast('Executando saneamento e imputação automática dos dados...');
+      showToast('Removendo duplicatas exatas, consolidando datas repetidas e ordenando a série...');
       const result = await apiClient.sanitizeData(undefined, currentDataset.mappings);
+      setModelResults(null);
+      apiClient.clearModelCache();
       setCurrentDataset({
         ...currentDataset,
         previewRows: result.cleanedRows.slice(0, 10),
@@ -278,7 +268,7 @@ export default function App() {
         validation: result.validation,
         readiness: result.readiness
       });
-      showToast(`Saneamento concluído: ${result.fixedIssues.length} correções aplicadas!`);
+      showToast(`Saneamento concluído: ${result.fixedIssues.length} correções estruturais. Ausências e negativos não foram fabricados.`);
     } catch (err: any) {
       showToast(`Erro no saneamento: ${err.message || 'Falha ao tratar dados'}`);
     }
@@ -320,17 +310,21 @@ export default function App() {
           channelType: m.columnName.includes('tv') ? 'tv' : 'digital'
         })),
         controlColumns: controlCols,
-        seasonalityFourierTerms: 2,
         mcmcChains: 4,
         mcmcDraws: 1000,
         mcmcWarmup: 500,
-        targetKpiType: 'revenue',
+        targetKpiType: inferKpiType(kpiCol),
         priors: {}
       };
 
       const res = await apiClient.runModel(config);
       setModelResults(res);
-      showToast('Modelo Google Meridian convergido com sucesso!');
+      const convergence = res.diagnostics?.isConverged;
+      showToast(convergence === true
+        ? 'Posterior e Analyzer concluídos; diagnóstico de convergência aprovado.'
+        : convergence === false
+          ? 'Posterior e Analyzer concluídos, mas o diagnóstico indica não convergência.'
+          : 'Posterior e Analyzer concluídos; convergência indisponível.');
       setCurrentView('dashboard');
     } catch (err: any) {
       console.error('Error fitting model:', err);
@@ -398,6 +392,7 @@ export default function App() {
             onRunModel={() => handleRunModel()}
             onOpenTour={() => setIsTourOpen(true)}
             onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
+            isMobileMenuOpen={isMobileMenuOpen}
             isModelRunning={isModelRunning}
             isModelTrained={!!modelResults}
             filename={currentDataset?.filename}
@@ -458,6 +453,7 @@ export default function App() {
                   onSaveMappings={handleSaveMappings}
                   onNavigateToReadiness={() => setCurrentView('readiness')}
                   onOpenFullTour={() => setIsTourOpen(true)}
+                  onNavigateToLibrary={() => setCurrentView('library')}
                 />
               )}
 
@@ -511,8 +507,12 @@ export default function App() {
                 />
               )}
 
-              {(currentView === 'methodology' || currentView === 'library') && (
+              {currentView === 'methodology' && (
                 <MethodologyGuideView onNavigateToMapping={() => setCurrentView('mapping')} />
+              )}
+
+              {currentView === 'library' && (
+                <ChannelLibraryView />
               )}
 
               {currentView === 'report' && (

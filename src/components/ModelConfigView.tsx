@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Radio,
   Play,
@@ -40,14 +40,12 @@ interface ModelConfigViewProps {
   onOpenFullTour?: () => void;
 }
 
-const RUN_STEPS = [
-  'Validando estrutura temporal e valores nulos...',
-  'Preparando variáveis de mídia e transformações geométricas...',
-  'Analisando canais e correlações...',
-  'Estimando efeitos de Adstock e Curvas de Saturação (Hill)...',
-  'Validando convergência das cadeias MCMC (Gelman-Rubin R̂)...',
-  'Gerando recomendações e otimização de orçamento...'
-];
+function inferKpiType(columnName: string): MeridianModelConfig['targetKpiType'] {
+  const normalized = columnName.trim().toLowerCase();
+  if (/(revenue|receita|faturamento|gmv)/.test(normalized)) return 'revenue';
+  if (/(sales|vendas|units|unidades)/.test(normalized)) return 'sales';
+  return 'conversions';
+}
 
 export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
   mappings,
@@ -61,18 +59,13 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
   const spendCols = mappings.filter(m => m.mappedType === 'media_spend');
   const controlCols = mappings.filter(m => m.mappedType === 'control').map(m => m.columnName);
 
-  const [currentProgressStep, setCurrentProgressStep] = useState(0);
-
-  // Simplified Model Preparation Form (4 Questions)
-  const [selectedPeriod, setSelectedPeriod] = useState<'all' | '12m' | '24m'>('all');
-  const [selectedGranularity, setSelectedGranularity] = useState<'weekly' | 'daily' | 'monthly'>('weekly');
+  // Simplified Model Preparation Form
   const [activeTab, setActiveTab] = useState<'simplified' | 'advanced'>('simplified');
 
   // Advanced Hyperparameters
   const [chains, setChains] = useState(4);
   const [draws, setDraws] = useState(1000);
   const [warmup, setWarmup] = useState(500);
-  const [fourierTerms, setFourierTerms] = useState(2);
 
   // Bayesian Priors
   const [priors, setPriors] = useState({
@@ -84,35 +77,24 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
     hillSlopeStd: 0.5
   });
 
-  // Step progress animation when running
-  useEffect(() => {
-    if (!isModelRunning) {
-      setCurrentProgressStep(0);
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setCurrentProgressStep(prev => (prev < RUN_STEPS.length - 1 ? prev + 1 : prev));
-    }, 900);
-
-    return () => clearInterval(interval);
-  }, [isModelRunning]);
-
   const handleExecute = () => {
     const config: MeridianModelConfig = {
       dateColumn: dateCol,
       kpiColumn: kpiCol,
       mediaChannels: spendCols.map(m => ({
         spendColumn: m.columnName,
+        impressionsColumn: mappings.find(candidate =>
+          (candidate.mappedType === 'media_impressions' || candidate.mappedType === 'media_clicks')
+          && candidate.channelName?.trim().toLowerCase() === m.channelName?.trim().toLowerCase()
+        )?.columnName,
         channelName: m.channelName || m.columnName,
         channelType: m.columnName.includes('tv') ? 'tv' : m.columnName.includes('video') || m.columnName.includes('youtube') ? 'video' : 'digital'
       })),
       controlColumns: controlCols,
-      seasonalityFourierTerms: fourierTerms,
       mcmcChains: chains,
       mcmcDraws: draws,
       mcmcWarmup: warmup,
-      targetKpiType: 'revenue',
+      targetKpiType: inferKpiType(kpiCol),
       priors: {
         adstockAlphaPrior: { mean: priors.adstockAlpha, std: priors.adstockAlphaStd },
         hillHalfSaturationPrior: { mean: priors.hillHalfSat, std: priors.hillHalfSatStd },
@@ -148,7 +130,7 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
         tips={[
           { icon: '🔄', text: 'Efeito Residual (Adstock): Mede quanto o impacto de um anúncio continua gerando vendas nas semanas seguintes.' },
           { icon: '📈', text: 'Retornos Decrescentes: Identifica o ponto em que investir mais em um canal começa a trazer menos retorno.' },
-          { icon: '🎯', text: 'Confiabilidade dos Cálculos (R̂ < 1.05): Garante que as estimativas são estatisticamente estáveis e seguras.' }
+          { icon: '🎯', text: 'Convergência: o Analyzer usa R-hat máximo < 1,2 como limiar de convergência aproximada.' }
         ]}
         proTip="O Easy Mix Modeling simplifica os parâmetros bayesianos complexos em 4 perguntas diretas de negócio."
       />
@@ -156,40 +138,16 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
       {/* Execution Progress Modal / Banner if running */}
       {isModelRunning && (
         <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-6 rounded-2xl shadow-lg border border-blue-500/30 space-y-4 animate-fade-in">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-5 h-5 border-2 border-blue-300 border-t-transparent rounded-full animate-spin" />
               <h3 className="text-base font-bold">Executando análise do Google Meridian...</h3>
             </div>
-            <span className="text-xs font-mono text-blue-200">
-              Etapa {currentProgressStep + 1} de {RUN_STEPS.length}
-            </span>
+            <span className="text-xs text-blue-200">Aguardando resposta científica do serviço</span>
           </div>
-
-          {/* Progress Bar */}
-          <div className="w-full bg-blue-950/60 rounded-full h-2 overflow-hidden border border-blue-400/30">
-            <div
-              className="bg-emerald-400 h-full transition-all duration-500 ease-out rounded-full"
-              style={{ width: `${((currentProgressStep + 1) / RUN_STEPS.length) * 100}%` }}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-xs pt-2">
-            {RUN_STEPS.map((step, idx) => (
-              <div
-                key={idx}
-                className={`p-2 rounded-lg border text-[11px] transition ${
-                  idx < currentProgressStep
-                    ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
-                    : idx === currentProgressStep
-                    ? 'bg-blue-600 border-white/50 text-white font-bold animate-pulse'
-                    : 'bg-blue-950/40 border-blue-800 text-blue-400'
-                }`}
-              >
-                <div className="font-semibold mb-0.5">{idx + 1}. {['Validar', 'Variáveis', 'Canais', 'Efeitos', 'MCMC', 'Insights'][idx]}</div>
-              </div>
-            ))}
-          </div>
+          <p className="text-xs text-blue-100">
+            O backend retornará sucesso somente depois de sample_posterior() e Analyzer concluírem. Não são exibidas etapas estimadas pelo navegador.
+          </p>
         </div>
       )}
 
@@ -274,15 +232,9 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
               <Calendar className="w-4 h-4 text-blue-500" />
               <span>2. Período a Analisar</span>
             </div>
-            <select
-              value={selectedPeriod}
-              onChange={e => setSelectedPeriod(e.target.value as any)}
-              className="w-full text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-slate-800 dark:text-slate-200 focus:outline-blue-500"
-            >
-              <option value="all">Todo o Histórico Disponível</option>
-              <option value="24m">Últimos 24 Meses (Recomendado)</option>
-              <option value="12m">Últimos 12 Meses</option>
-            </select>
+            <div className="p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium">
+              Todo o histórico enviado
+            </div>
           </div>
 
           {/* Q3: Agrupamento / Granularidade */}
@@ -291,15 +243,9 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
               <Clock className="w-4 h-4 text-purple-500" />
               <span>3. Frequência Temporal</span>
             </div>
-            <select
-              value={selectedGranularity}
-              onChange={e => setSelectedGranularity(e.target.value as any)}
-              className="w-full text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-slate-800 dark:text-slate-200 focus:outline-blue-500"
-            >
-              <option value="weekly">Semanal (Recomendado Google Meridian)</option>
-              <option value="daily">Diário</option>
-              <option value="monthly">Mensal</option>
-            </select>
+            <div className="p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium">
+              Preservada conforme as datas do arquivo
+            </div>
           </div>
 
           {/* Q4: Canais Selecionados */}
@@ -342,10 +288,11 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
                   content="Conjunto de indicadores matemáticos que avaliam a precisão, estabilidade e capacidade preditiva do modelo econométrico ajustado pelo algoritmo Google Meridian."
                 />
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Métricas estatísticas do modelo Google Meridian convergido</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Métricas estatísticas retornadas pelo Analyzer do Google Meridian</p>
             </div>
-            <span className="bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 self-start sm:self-auto shadow-xs">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Convergência MCMC Estável
+            <span className={`${results.diagnostics.isConverged === true ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : results.diagnostics.isConverged === false ? 'bg-rose-100 text-rose-800 border-rose-200' : 'bg-slate-100 text-slate-700 border-slate-200'} text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 self-start sm:self-auto border shadow-xs`}>
+              {results.diagnostics.isConverged === true ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+              {results.diagnostics.isConverged === true ? 'Convergência aprovada' : results.diagnostics.isConverged === false ? 'Não convergiu' : 'Convergência indisponível'}
             </span>
           </div>
 
@@ -360,9 +307,9 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
                 />
               </span>
               <div className="text-base font-extrabold text-blue-600 dark:text-blue-400 mt-0.5 font-mono">
-                {(((results?.diagnostics?.rSquared ?? 0)) * 100).toFixed(1)}%
+                {Number.isFinite(results?.diagnostics?.rSquared) ? `${(Number(results.diagnostics.rSquared) * 100).toFixed(1)}%` : 'Indisponível'}
               </div>
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">R² = {results?.diagnostics?.rSquared ?? 0}</span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">R² = {results?.diagnostics?.rSquared ?? 'N/D'}</span>
             </div>
 
             {/* MAPE */}
@@ -375,7 +322,7 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
                 />
               </span>
               <div className="text-base font-extrabold text-slate-800 dark:text-slate-200 mt-0.5 font-mono">
-                {results?.diagnostics?.mape !== undefined ? results.diagnostics.mape.toFixed(1) : '0.0'}%
+                {Number.isFinite(results?.diagnostics?.mape) ? `${Number(results.diagnostics.mape).toFixed(1)}%` : 'Indisponível'}
               </div>
               <span className="text-[10px] text-slate-400 dark:text-slate-500">Precisão preditiva</span>
             </div>
@@ -386,13 +333,13 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
                 <span>Gelman-Rubin (R̂)</span>
                 <InfoTooltip
                   title="Diagnóstico de Convergência Gelman-Rubin (R̂ / R-hat)"
-                  content="Verifica se todas as cadeias de simulação MCMC chegaram ao mesmo consenso numérico. Valores de R̂ abaixo de 1.05 atestam convergência perfeita e solidez dos parâmetros estimados."
+                  content="Resume a concordância entre as cadeias MCMC. O limiar padrão do Analyzer considera R-hat máximo abaixo de 1,2 como convergência aproximada."
                 />
               </span>
               <div className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5 font-mono">
-                {(results?.diagnostics?.gelmanRubinRhat ?? (results?.diagnostics as any)?.gelmanRubinMax ?? 1.02).toFixed(3)}
+                {Number.isFinite(results?.diagnostics?.gelmanRubinRhat) ? Number(results.diagnostics.gelmanRubinRhat).toFixed(3) : 'Indisponível'}
               </div>
-              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">Ideal (&lt; 1.05)</span>
+              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">Limiar do Analyzer (&lt; 1,2)</span>
             </div>
 
             {/* Effective Sample Size */}
@@ -401,11 +348,11 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
                 <span>ESS (Amostras)</span>
                 <InfoTooltip
                   title="Tamanho Efetivo da Amostra (Effective Sample Size - ESS)"
-                  content="Quantifica o volume de sorteios independentes gerados após remover autocorrelações das cadeias. Amostras elevadas garantem margens de incerteza (95% CI) altamente confiáveis."
+                  content="Estima o volume de sorteios independentes após considerar a autocorrelação. Não substitui a análise conjunta de convergência e incerteza."
                 />
               </span>
               <div className="text-base font-extrabold text-slate-800 dark:text-slate-200 mt-0.5 font-mono">
-                {results?.diagnostics?.effectiveSampleSize ?? (results?.diagnostics as any)?.effectiveSampleSizeMin ?? 1200}
+                {Number.isFinite(results?.diagnostics?.effectiveSampleSize) ? results.diagnostics.effectiveSampleSize : 'Indisponível'}
               </div>
               <span className="text-[10px] text-slate-400 dark:text-slate-500">Tamanho efetivo</span>
             </div>
@@ -420,7 +367,7 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
                 />
               </span>
               <div className="text-base font-extrabold text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono">
-                {results?.diagnostics?.mediaShare !== undefined ? results.diagnostics.mediaShare.toFixed(1) : '0.0'}%
+                {Number.isFinite(results?.diagnostics?.mediaShare) ? `${Number(results.diagnostics.mediaShare).toFixed(1)}%` : 'Indisponível'}
               </div>
               <span className="text-[10px] text-slate-400 dark:text-slate-500">Vendas incrementais</span>
             </div>
@@ -435,7 +382,7 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
                 />
               </span>
               <div className="text-base font-extrabold text-slate-700 dark:text-slate-300 mt-0.5 font-mono">
-                {results?.diagnostics?.baselineShare !== undefined ? results.diagnostics.baselineShare.toFixed(1) : '0.0'}%
+                {Number.isFinite(results?.diagnostics?.baselineShare) ? `${Number(results.diagnostics.baselineShare).toFixed(1)}%` : 'Indisponível'}
               </div>
               <span className="text-[10px] text-slate-400 dark:text-slate-500">Vendas orgânicas</span>
             </div>
@@ -592,26 +539,6 @@ export const ModelConfigView: React.FC<ModelConfigViewProps> = ({
                 />
               </div>
 
-              <div>
-                <div className="flex justify-between items-center font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  <span className="flex items-center">
-                    <span>Termos de Fourier para Sazonalidade: {fourierTerms}</span>
-                    <InfoTooltip
-                      title="Termos de Fourier (Sazonalidade Cíclica)"
-                      content="Funções senoidais que capturam padrões cíclicos ao longo do ano (picos de férias, datas comemorativas e trimestres), separando sazonalidade do efeito dos anúncios."
-                    />
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="4"
-                  step="1"
-                  value={fourierTerms}
-                  onChange={e => setFourierTerms(Number(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer"
-                />
-              </div>
             </div>
           </div>
 

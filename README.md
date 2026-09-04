@@ -1,6 +1,6 @@
 # Easy Mix Modeling (MMM) 📊
 
-Plataforma Enterprise de **Marketing Mix Modeling (MMM)** e otimização bayesiana de orçamentos de mídia baseada nos princípios do **Google Meridian** e integrada com **Gemini AI**.
+Plataforma Enterprise de **Marketing Mix Modeling (MMM)** e otimização bayesiana de orçamentos de mídia baseada no **Google Meridian**. A IA generativa é opcional e nunca participa dos cálculos.
 
 ---
 
@@ -11,7 +11,8 @@ Plataforma Enterprise de **Marketing Mix Modeling (MMM)** e otimização bayesia
 - **Otimizador de Orçamento**: Alocação ótima de verba baseada no Teorema da Equimarginalidade e ROI Marginal (mROI).
 - **Simulador de Cenários What-If**: Previsão de receita e impacto em tempo real ao redistribuir orçamentos entre canais.
 - **Diagnóstico de Prontidão (Data Readiness)**: Análise de qualidade de dados (0 a 100), detecção de outliers e autocorreção.
-- **Consultor Estratégico com Gemini AI**: Geração de diagnósticos em linguagem natural e planos de ação táticos.
+- **Insights determinísticos**: Diagnósticos e recomendações auditáveis por regras versionadas.
+- **Narrativa opcional com Gemini**: Melhoria textual apenas sob solicitação explícita, sem recalcular métricas.
 - **Biblioteca de Benchmarks**: Priors e intervalos para mais de 70 canais de mídia online e offline.
 - **Exportação de Relatórios**: Relatórios executivos formatados e exportáveis.
 
@@ -21,7 +22,7 @@ Plataforma Enterprise de **Marketing Mix Modeling (MMM)** e otimização bayesia
 
 - **Frontend**: React 19, TypeScript, Tailwind CSS v4, Motion, Lucide Icons, Recharts
 - **Backend / API**: Express 4, Node.js, tsx, esbuild
-- **Modelagem & Estatística**: Motor econométrico TypeScript com amostragem bayesiana e curvas Hill
+- **Modelagem & Estatística**: Google Meridian em serviço Python, com posterior e Analyzer oficiais
 - **IA Generativa**: Google Gen AI SDK (`@google/genai`)
 
 ---
@@ -44,8 +45,9 @@ Crie um arquivo `.env` a partir do modelo:
 ```bash
 cp .env.example .env
 ```
-Adicione sua chave de API do Gemini caso deseje usar recursos de IA generativa:
+O produto funciona integralmente com `AI_MODE=off`. Para habilitar apenas o botão explícito de melhoria narrativa:
 ```env
+AI_MODE=on_demand
 GEMINI_API_KEY=sua_chave_gemini_aqui
 ```
 

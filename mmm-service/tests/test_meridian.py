@@ -198,12 +198,20 @@ def test_scientific_values_are_strict_json() -> None:
     json.dumps(converted, allow_nan=False)
 
 
-def test_unimplemented_endpoints_return_501() -> None:
+def test_unknown_model_id_is_not_reconstructed_from_frontend() -> None:
     client = TestClient(main.app)
-    for path in ("/api/v1/meridian/optimize", "/api/v1/meridian/simulate"):
-        response = client.post(path, json={})
-        assert response.status_code == 501
-        assert response.json()["detail"]["code"] == "NOT_IMPLEMENTED"
+    optimizer = client.post(
+        "/api/v1/meridian/optimize",
+        json={"modelId": "unknown", "targetTotalBudget": 100},
+    )
+    scenario = client.post(
+        "/api/v1/meridian/simulate",
+        json={"modelId": "unknown", "channelSpends": {"TV": 100}},
+    )
+    assert optimizer.status_code == 404
+    assert optimizer.json()["detail"]["code"] == "MODEL_NOT_FOUND"
+    assert scenario.status_code == 404
+    assert scenario.json()["detail"]["code"] == "MODEL_NOT_FOUND"
 
 
 def test_full_pipeline_returns_real_analyzer_outputs(completed_fit: dict) -> None:
@@ -226,6 +234,8 @@ def test_full_pipeline_returns_real_analyzer_outputs(completed_fit: dict) -> Non
         assert channel["marginalRoi"] is not None
         assert channel["incrementalOutcome"] is not None
         assert channel["contribution"] is not None
+        assert channel["saturationLevel"] is not None
+        assert channel["adstockDecay"] is not None
         assert all(
             channel["roiInterval"][key] is not None
             for key in ("ci025", "ci050", "ci975")
@@ -247,7 +257,8 @@ def test_full_pipeline_returns_real_analyzer_outputs(completed_fit: dict) -> Non
             assert point["incrementalOutcome"] is not None
             assert point["incrementalKpiLower"] is not None
             assert point["incrementalKpiUpper"] is not None
-            assert point["marginalRoi"] is not None
+            assert point["roi"] is None
+            assert point["marginalRoi"] is None
 
     def assert_finite_or_null(value) -> None:
         if isinstance(value, dict):
@@ -260,3 +271,129 @@ def test_full_pipeline_returns_real_analyzer_outputs(completed_fit: dict) -> Non
             assert math.isfinite(value)
 
     assert_finite_or_null(completed_fit)
+
+
+def test_real_model_optimizer_decision_inputs(completed_fit: dict) -> None:
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/v1/meridian/optimize",
+        json={
+            "modelId": completed_fit["modelId"],
+            "targetTotalBudget": completed_fit["results"]["totalSpend"],
+            "decisionEngineVersion": "1.1.0",
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["modelId"] == completed_fit["modelId"]
+    results = data["results"]
+    assert results["modelId"] == completed_fit["modelId"]
+    assert results["currentTotalBudget"] > 0
+    assert results["targetTotalBudget"] > 0
+    assert results["expectedCurrentKpi"] is not None
+    assert results["expectedOptimizedKpi"] is not None
+    assert results["incrementalKpi"] is not None
+    assert {item["channelName"] for item in results["reallocations"]} == {
+        "TV",
+        "Search",
+    }
+    assert sum(
+        item["recommendedSpendShare"] for item in results["reallocations"]
+    ) == pytest.approx(100.0, rel=5e-4)
+    for item in results["reallocations"]:
+        assert item["currentSpend"] is not None
+        assert item["recommendedSpend"] is not None
+        assert item["currentRoi"] is not None
+        assert item["optimizedRoi"] is not None
+        assert item["marginalRoi"] is not None
+
+    repeated = client.post(
+        "/api/v1/meridian/optimize",
+        json={
+            "modelId": completed_fit["modelId"],
+            "targetTotalBudget": completed_fit["results"]["totalSpend"],
+            "decisionEngineVersion": "1.1.0",
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json() == data
+
+
+def test_optimizer_changes_with_a_distinct_budget(completed_fit: dict) -> None:
+    target = completed_fit["results"]["totalSpend"] * 1.05
+    response = TestClient(main.app).post(
+        "/api/v1/meridian/optimize",
+        json={
+            "modelId": completed_fit["modelId"],
+            "targetTotalBudget": target,
+            "decisionEngineVersion": "1.1.0",
+        },
+    )
+    assert response.status_code == 200, response.text
+    results = response.json()["results"]
+    assert results["targetTotalBudget"] == pytest.approx(target)
+    recommended_total = sum(
+        item["recommendedSpend"] for item in results["reallocations"]
+    )
+    # Meridian optimizes on a discrete spend grid, so the channel sum can differ
+    # slightly from the continuous target while still representing that budget.
+    assert recommended_total == pytest.approx(target, rel=5e-4)
+    assert results["expectedOptimizedKpi"] is not None
+
+
+def test_real_model_what_if_uses_posterior(completed_fit: dict) -> None:
+    current_spends = {
+        item["channelName"]: item["spend"]
+        for item in completed_fit["results"]["channels"]
+    }
+    scenario_spends = dict(current_spends)
+    scenario_spends["Search"] *= 1.1
+    response = TestClient(main.app).post(
+        "/api/v1/meridian/simulate",
+        json={
+            "modelId": completed_fit["modelId"],
+            "channelSpends": scenario_spends,
+            "decisionEngineVersion": "1.1.0",
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["status"] == "success"
+    results = data["results"]
+    assert results["modelId"] == completed_fit["modelId"]
+    assert results["channelSpends"] == scenario_spends
+    assert results["expectedKpi"] is not None
+    assert results["expectedKpiLower"] is not None
+    assert results["expectedKpiUpper"] is not None
+    assert results["expectedKpiLower"] <= results["expectedKpi"] <= results["expectedKpiUpper"]
+    assert results["incrementalKpi"] is not None
+    assert results["blendedRoi"] is not None
+
+    second_spends = dict(current_spends)
+    second_spends["TV"] *= 0.9
+    second_response = TestClient(main.app).post(
+        "/api/v1/meridian/simulate",
+        json={
+            "modelId": completed_fit["modelId"],
+            "channelSpends": second_spends,
+            "decisionEngineVersion": "1.1.0",
+        },
+    )
+    assert second_response.status_code == 200, second_response.text
+    second = second_response.json()["results"]
+    assert second["id"] != results["id"]
+    assert second["channelSpends"] == second_spends
+    assert second["expectedKpi"] is not None
+
+
+def test_scenario_rejects_missing_channels(completed_fit: dict) -> None:
+    response = TestClient(main.app).post(
+        "/api/v1/meridian/simulate",
+        json={
+            "modelId": completed_fit["modelId"],
+            "channelSpends": {"TV": 100},
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "INVALID_SCENARIO_INPUT"

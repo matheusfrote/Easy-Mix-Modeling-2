@@ -8,10 +8,7 @@ import {
   MeridianModelResults,
   ScenarioDefinition
 } from '../types/mmm';
-import { DataRow, StatisticalValidationReport, validateDataset, sanitizeDataset } from './dataValidator';
-import { inferColumnMappings } from './dataMapper';
-import { calculateDataReadinessScore } from './dataReadiness';
-import { generateDecisionInsights, answerStrategicQuestion } from './decisionEngine';
+import { DataRow, StatisticalValidationReport } from './dataValidator';
 
 export interface AdsPlatformStatus {
   isConfigured: boolean;
@@ -49,7 +46,7 @@ export interface UploadResponse {
   filename: string;
 }
 
-// Local cache to ensure seamless offline/resilient behavior
+// UI snapshot only. It is never used to synthesize a scientific response.
 let localDatasetCache: {
   rows: DataRow[];
   columns: string[];
@@ -75,14 +72,15 @@ export class ApiError extends Error {
   }
 }
 
-// Robust helper to perform safe JSON API requests and prevent "Unexpected token < in JSON at position 0"
-async function safeApiCall<T>(url: string, options?: RequestInit, throwOnError = false): Promise<T | null> {
+function isNullableFinite(value: unknown): boolean {
+  return value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+// Transport and contract failures must remain real failures. Scientific results
+// are never reconstructed locally when the backend is unavailable.
+async function safeApiCall<T>(url: string, options?: RequestInit): Promise<T> {
   try {
     let sessionId = typeof window !== 'undefined' ? localStorage.getItem('easy_mix_session_id') : null;
-    if (!sessionId && typeof window !== 'undefined') {
-      sessionId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
-      localStorage.setItem('easy_mix_session_id', sessionId);
-    }
     const headers: Record<string, string> = {
       ...(options?.headers as Record<string, string> || {})
     };
@@ -109,38 +107,35 @@ async function safeApiCall<T>(url: string, options?: RequestInit, throwOnError =
         errorData = JSON.parse(text);
       } catch {}
 
-      if (throwOnError) {
-        const detail = errorData?.detail;
-        throw new ApiError(
-          detail?.message || errorData?.message || errorData?.details || `Erro na requisição (${res.status})`,
-          detail?.code || errorData?.code || 'HTTP_ERROR',
-          res.status,
-          detail || errorData?.details
-        );
-      }
-      return null;
+      const detail = errorData?.detail;
+      throw new ApiError(
+        detail?.message || errorData?.message || errorData?.error || errorData?.details || `Erro na requisição (${res.status})`,
+        detail?.code || errorData?.code || 'HTTP_ERROR',
+        res.status,
+        detail || errorData?.details
+      );
     }
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
-      return null;
+      throw new ApiError('A API retornou conteúdo não JSON.', 'INVALID_RESPONSE', 502);
     }
     const text = await res.text();
     if (!text || text.trim().startsWith('<') || text.trim().startsWith('<!doctype') || text.trim().startsWith('<!DOCTYPE')) {
-      return null;
+      throw new ApiError('A API retornou uma resposta vazia ou HTML.', 'INVALID_RESPONSE', 502);
     }
     try {
       return JSON.parse(text) as T;
     } catch {
-      return null;
+      throw new ApiError('A API retornou JSON inválido.', 'INVALID_RESPONSE', 502);
     }
   } catch (err) {
-    if (throwOnError && err instanceof ApiError) {
+    if (err instanceof ApiError) {
       throw err;
     }
-    if (throwOnError && err instanceof Error) {
+    if (err instanceof Error) {
       throw new ApiError(err.message, 'NETWORK_ERROR', 0);
     }
-    return null;
+    throw new ApiError('Falha de rede desconhecida.', 'NETWORK_ERROR', 0);
   }
 }
 
@@ -152,6 +147,7 @@ export const apiClient = {
       body: JSON.stringify({ rows, filename })
     });
     if (data && data.columns) {
+      localModelResultsCache = null;
       localDatasetCache = {
         rows,
         columns: data.columns,
@@ -166,33 +162,7 @@ export const apiClient = {
       };
     }
 
-    const cols = Object.keys(rows[0] || {}).map(c => c.trim()).filter(Boolean);
-    const mappings = inferColumnMappings(cols, rows);
-    const val = validateDataset(rows, mappings);
-    const readiness = calculateDataReadinessScore(rows, mappings, val);
-
-    const result: UploadResponse = {
-      rowCount: rows.length,
-      columnCount: cols.length,
-      columns: cols,
-      rows,
-      previewRows: rows.slice(0, 10),
-      mappings,
-      validation: val,
-      readiness,
-      filename: filename || 'uploaded_data.csv'
-    };
-
-    localDatasetCache = {
-      rows,
-      columns: cols,
-      mappings,
-      validation: val,
-      readiness,
-      filename: result.filename
-    };
-
-    return result;
+    throw new ApiError('Contrato inválido no upload.', 'INVALID_RESPONSE', 502);
   },
 
   async saveMappings(mappings: ColumnMapping[]): Promise<{ success: boolean; mappings: ColumnMapping[] }> {
@@ -202,15 +172,13 @@ export const apiClient = {
       body: JSON.stringify({ mappings })
     });
     if (data && data.success) {
+      localModelResultsCache = null;
       if (localDatasetCache) {
         localDatasetCache.mappings = mappings;
       }
       return data;
     }
-    if (localDatasetCache) {
-      localDatasetCache.mappings = mappings;
-    }
-    return { success: true, mappings };
+    throw new ApiError('O servidor não confirmou o mapeamento.', 'INVALID_RESPONSE', 502);
   },
 
   async validateData(rows?: DataRow[], mappings?: ColumnMapping[]): Promise<{ validation: StatisticalValidationReport; readiness: DataReadinessScore }> {
@@ -223,11 +191,7 @@ export const apiClient = {
       return data;
     }
 
-    const targetRows = rows || localDatasetCache?.rows || [];
-    const targetMappings = mappings || localDatasetCache?.mappings || [];
-    const val = validateDataset(targetRows, targetMappings);
-    const readiness = calculateDataReadinessScore(targetRows, targetMappings, val);
-    return { validation: val, readiness };
+    throw new ApiError('Contrato inválido na validação.', 'INVALID_RESPONSE', 502);
   },
 
   async sanitizeData(rows?: DataRow[], mappings?: ColumnMapping[]): Promise<{
@@ -247,6 +211,7 @@ export const apiClient = {
       body: JSON.stringify({ rows, mappings })
     });
     if (data && data.cleanedRows && data.validation) {
+      localModelResultsCache = null;
       if (localDatasetCache) {
         localDatasetCache.rows = data.cleanedRows;
         localDatasetCache.validation = data.validation;
@@ -255,29 +220,7 @@ export const apiClient = {
       return data;
     }
 
-    const targetRows = rows || localDatasetCache?.rows || [];
-    const targetMappings = mappings || localDatasetCache?.mappings || [];
-    const sanitizeResult = sanitizeDataset(targetRows, targetMappings);
-    const val = validateDataset(sanitizeResult.cleanedRows, targetMappings);
-    const readiness = calculateDataReadinessScore(sanitizeResult.cleanedRows, targetMappings, val);
-
-    if (localDatasetCache) {
-      localDatasetCache.rows = sanitizeResult.cleanedRows;
-      localDatasetCache.validation = val;
-      localDatasetCache.readiness = readiness;
-    }
-
-    return {
-      success: true,
-      cleanedRows: sanitizeResult.cleanedRows,
-      fixedIssues: sanitizeResult.fixedIssues,
-      recordsDeduplicated: sanitizeResult.recordsDeduplicated,
-      negativeValuesClipped: sanitizeResult.negativeValuesClipped,
-      missingValuesImputed: sanitizeResult.missingValuesImputed,
-      datesReordered: sanitizeResult.datesReordered,
-      validation: val,
-      readiness
-    };
+    throw new ApiError('Contrato inválido no saneamento.', 'INVALID_RESPONSE', 502);
   },
 
   async runModel(config: MeridianModelConfig, rows?: DataRow[]): Promise<MeridianModelResults> {
@@ -285,16 +228,12 @@ export const apiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config, rows })
-    }, true);
+    });
     if (data && data.channels && data.diagnostics) {
       localModelResultsCache = data;
       return data;
     }
-    throw new ApiError(
-      'O serviço Google Meridian está temporariamente indisponível.',
-      'MERIDIAN_UNAVAILABLE',
-      503
-    );
+    throw new ApiError('Contrato inválido no resultado do modelo.', 'INVALID_RESPONSE', 502);
   },
 
   async getModelResults(): Promise<MeridianModelResults> {
@@ -304,11 +243,7 @@ export const apiClient = {
       return data;
     }
 
-    if (localModelResultsCache) {
-      return localModelResultsCache;
-    }
-
-    throw new Error('Nenhum modelo disponível ou falha ao carregar resultados do servidor.');
+    throw new ApiError('Contrato inválido no resultado do modelo.', 'INVALID_RESPONSE', 502);
   },
 
   async optimizeBudget(targetTotalBudget: number, constraints?: Record<string, { minSpend?: number; maxSpend?: number }>): Promise<BudgetOptimizationResult> {
@@ -316,12 +251,22 @@ export const apiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetTotalBudget, constraints })
-    }, true);
-    if (data && data.reallocations && typeof data.totalIncrementalKpi === 'number') {
+    });
+    if (
+      data
+      && Array.isArray(data.reallocations)
+      && Object.hasOwn(data, 'totalIncrementalKpi')
+      && isNullableFinite(data.totalIncrementalKpi)
+      && data.reallocations.every(item =>
+        typeof item?.channelName === 'string'
+        && Object.hasOwn(item, 'recommendedSpend')
+        && isNullableFinite(item.recommendedSpend)
+      )
+    ) {
       return data;
     }
 
-    throw new Error('Falha ao comunicar com o servidor para otimizar orçamento.');
+    throw new ApiError('Contrato inválido na otimização de orçamento.', 'INVALID_RESPONSE', 502);
   },
 
   async simulateScenario(channelSpends: Record<string, number>): Promise<ScenarioDefinition> {
@@ -329,12 +274,19 @@ export const apiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ channelSpends })
-    }, true);
-    if (data && typeof data.expectedKpi === 'number') {
+    });
+    if (
+      data
+      && typeof data.id === 'string'
+      && Object.hasOwn(data, 'expectedKpi')
+      && isNullableFinite(data.expectedKpi)
+      && data.channelSpends
+      && typeof data.channelSpends === 'object'
+    ) {
       return data;
     }
 
-    throw new Error('Falha ao comunicar com o servidor para simular cenário.');
+    throw new ApiError('Contrato inválido na simulação de cenário.', 'INVALID_RESPONSE', 502);
   },
 
   async generateInsights(): Promise<AIInsightItem[]> {
@@ -350,11 +302,11 @@ export const apiClient = {
     throw new Error('Falha ao comunicar com o servidor para gerar insights.');
   },
 
-  async getBudgetExplanation(optResult?: BudgetOptimizationResult, extraQuery?: string): Promise<string> {
+  async getBudgetExplanation(targetTotalBudget?: number, extraQuery?: string): Promise<string> {
     const data = await safeApiCall<{ explanation: string }>('/api/budget-explanation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ optResult, extraQuery })
+      body: JSON.stringify({ targetTotalBudget, extraQuery })
     });
     if (data && data.explanation) {
       return data.explanation;
@@ -368,11 +320,28 @@ export const apiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({})
-    }, true);
+    });
     if (data && data.title && data.summary) {
       return data;
     }
 
     throw new Error('Falha ao comunicar com o servidor para gerar relatório.');
+  },
+
+  async enhanceReportWithAi(): Promise<ExecutiveReportData> {
+    const data = await safeApiCall<ExecutiveReportData>('/api/report/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ useAi: true, outputType: 'executive_report' })
+    });
+    if (data && data.title && data.summary && data.modelId) {
+      return data;
+    }
+
+    throw new Error('Falha ao melhorar a narrativa do relatório.');
+  },
+
+  clearModelCache(): void {
+    localModelResultsCache = null;
   }
 };

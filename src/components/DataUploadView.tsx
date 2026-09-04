@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   FileSpreadsheet,
   Link,
@@ -10,13 +10,11 @@ import {
   AlertTriangle,
   FileCheck,
   ShieldCheck,
-  RefreshCw,
   Plus,
   Sliders,
   TrendingUp,
-  Table
 } from 'lucide-react';
-import { UploadResponse, apiClient } from '../services/apiClient';
+import { UploadResponse } from '../services/apiClient';
 import { StepGuidanceBanner, InfoTooltip } from './ContextualGuide';
 import { CsvFileInput } from './CsvFileInput';
 import { DataQualityReadinessWidget } from './integration/DataQualityReadinessWidget';
@@ -37,49 +35,6 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
   onNavigateToReadiness,
   onOpenFullTour
 }) => {
-  const [isLoadingDemo, setIsLoadingDemo] = useState(false);
-  const [demoError, setDemoError] = useState<string | null>(null);
-
-  const handleLoadDemoDataset = async () => {
-    setIsLoadingDemo(true);
-    setDemoError(null);
-    try {
-      // Basic static demo dataset generating logic for demonstration
-      const dates = [];
-      const now = new Date();
-      for (let i = 0; i < 104; i++) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - (i * 7));
-        dates.push(d.toISOString().split('T')[0]);
-      }
-      dates.reverse();
-      
-      const demoRows = dates.map(date => {
-        const base = 1000 + Math.random() * 200;
-        const tv = Math.floor(Math.random() * 50000);
-        const digital = Math.floor(Math.random() * 30000);
-        const print = Math.floor(Math.random() * 10000);
-        const kpi = Math.floor(base + (tv * 0.05) + (digital * 0.1) + (print * 0.02));
-        
-        return {
-          date: date,
-          kpi_vendas: kpi,
-          tv_spend: tv,
-          digital_spend: digital,
-          print_spend: print,
-          competitor_price: Math.random() * 10 + 50
-        };
-      });
-
-      const response = await apiClient.uploadData(demoRows, 'demo_dataset.csv');
-      onUploadSuccess(response);
-    } catch (err: any) {
-      setDemoError('Erro ao carregar dados de demonstração: ' + err.message);
-    } finally {
-      setIsLoadingDemo(false);
-    }
-  };
-
   return (
     <div id="data-upload-view" className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 max-w-7xl w-full mx-auto min-w-0">
       <h1 className="sr-only">
@@ -90,13 +45,13 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
         id="data-hub-guidance"
         stepNumber="1"
         title="Etapa 1: Data Hub"
-        subtitle="Importe suas séries temporais de marketing enviando arquivos Excel/CSV ou use os dados de demonstração."
+        subtitle="Importe suas séries temporais reais de marketing em Excel ou CSV."
         onOpenFullTour={onOpenFullTour}
         tips={[
           { icon: '📁', text: 'Arquivos Excel & CSV: Envio local de planilhas com detecção automática de datas e canais de mídia.' },
           { icon: '🎯', text: 'Model Readiness Score: Diagnóstico estatístico em tempo real para verificar se as séries estão aptas ao Meridian.' }
         ]}
-        proTip="Dica rápida: Se quiser testar o sistema imediatamente sem enviar sua própria planilha agora, use o botão 'Carregar Dados de Demonstração'."
+        proTip="Cada canal precisa de uma coluna de investimento e outra de exposição; investimento nunca é tratado como exposição."
       />
 
       <div className="space-y-6 animate-fade-in" id="csv-file-uploader-container">
@@ -115,27 +70,12 @@ export const DataUploadView: React.FC<DataUploadViewProps> = ({
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleLoadDemoDataset}
-                disabled={isLoadingDemo}
-                className="text-xs font-semibold px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 rounded-lg transition-colors flex items-center gap-2"
-              >
-                {isLoadingDemo ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Table className="w-3.5 h-3.5" />}
-                Carregar Dados Demo
-              </button>
               <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800">
                 .csv
               </span>
             </div>
           </div>
           
-          {demoError && (
-            <div className="p-3 bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300 text-sm rounded-lg flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <p>{demoError}</p>
-            </div>
-          )}
-
           <CsvFileInput
             onUploadSuccess={onUploadSuccess}
             currentDataset={currentDataset}

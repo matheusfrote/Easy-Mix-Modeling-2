@@ -92,7 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'channels',
-      label: '5. Desempenho & Saturação',
+      label: '5. Desempenho por Canal',
       icon: TrendingUp
     },
     {
@@ -108,7 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'insights',
-      label: '8. Recomendações com IA',
+      label: '8. Recomendações',
       icon: Sparkles
     },
     {

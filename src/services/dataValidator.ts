@@ -121,10 +121,13 @@ export function validateDataset(
   const checks: ValidationCheckResult[] = [];
   const channelAnomalies: ChannelAnomalyDetail[] = [];
 
-  const dateCol = mappings.find(m => m.mappedType === 'date')?.columnName;
-  const kpiCol = mappings.find(m => m.mappedType === 'kpi')?.columnName;
+  const dateMappings = mappings.filter(m => m.mappedType === 'date');
+  const kpiMappings = mappings.filter(m => m.mappedType === 'kpi');
+  const dateCol = dateMappings[0]?.columnName;
+  const kpiCol = kpiMappings[0]?.columnName;
   const spendCols = mappings.filter(m => m.mappedType === 'media_spend').map(m => m.columnName);
-  const impressionCols = mappings.filter(m => m.mappedType === 'media_impressions').map(m => m.columnName);
+  const exposureMappings = mappings.filter(m => m.mappedType === 'media_impressions' || m.mappedType === 'media_clicks');
+  const impressionCols = exposureMappings.map(m => m.columnName);
   const controlCols = mappings.filter(m => m.mappedType === 'control').map(m => m.columnName);
 
   const numRows = data.length;
@@ -142,6 +145,66 @@ export function validateDataset(
 
   let totalMissingCells = 0;
   let totalNegativeCells = 0;
+
+  if (dateMappings.length > 1) {
+    alerts.push({
+      id: 'multiple_date_columns',
+      title: 'Mais de uma coluna de data foi mapeada',
+      message: 'O pipeline aceita exatamente uma dimensão temporal por ajuste.',
+      severity: 'CRÍTICO',
+      category: 'time_series',
+      affectedColumns: dateMappings.map(mapping => mapping.columnName),
+      econometricImpact: 'Uma dimensão temporal ambígua impede construir o InputData de forma determinística.',
+      recommendation: 'Mantenha somente uma coluna marcada como Data.'
+    });
+  }
+  if (kpiMappings.length > 1) {
+    alerts.push({
+      id: 'multiple_kpi_columns',
+      title: 'Mais de uma coluna de KPI foi mapeada',
+      message: 'O ajuste atual aceita exatamente um KPI principal.',
+      severity: 'CRÍTICO',
+      category: 'statistics',
+      affectedColumns: kpiMappings.map(mapping => mapping.columnName),
+      econometricImpact: 'Um alvo ambíguo altera a variável dependente do modelo.',
+      recommendation: 'Mantenha somente uma coluna marcada como Resultado de Negócio.'
+    });
+  }
+
+  const exposureChannels = new Set(
+    exposureMappings.map(mapping => mapping.channelName?.trim().toLowerCase()).filter(Boolean)
+  );
+  const missingExposureChannels = mappings
+    .filter(mapping => mapping.mappedType === 'media_spend')
+    .filter(mapping => !mapping.channelName || !exposureChannels.has(mapping.channelName.trim().toLowerCase()));
+  if (missingExposureChannels.length > 0) {
+    alerts.push({
+      id: 'missing_media_exposure',
+      title: 'Canal de investimento sem exposição correspondente',
+      message: 'Spend não pode ser usado como exposure no Google Meridian.',
+      severity: 'CRÍTICO',
+      category: 'channel_anomalies',
+      affectedColumns: missingExposureChannels.map(mapping => mapping.columnName),
+      econometricImpact: 'Sem uma variável de exposição independente, o InputData científico não pode ser construído.',
+      recommendation: 'Mapeie impressões ou cliques com o mesmo nome de canal de cada coluna de investimento.'
+    });
+  }
+
+  const unsupportedMappings = mappings.filter(mapping =>
+    ['geo', 'population', 'revenue_per_kpi', 'media_reach', 'media_frequency'].includes(mapping.mappedType)
+  );
+  if (unsupportedMappings.length > 0) {
+    alerts.push({
+      id: 'unsupported_model_dimension',
+      title: 'Dimensão reconhecida, mas não implementada neste pipeline',
+      message: 'Geo, population, revenue_per_kpi e reach/frequency exigem um pipeline Meridian específico.',
+      severity: 'CRÍTICO',
+      category: 'statistics',
+      affectedColumns: unsupportedMappings.map(mapping => mapping.columnName),
+      econometricImpact: 'Executar essas dimensões pelo pipeline nacional de exposure produziria um modelo diferente do solicitado.',
+      recommendation: 'Remova essas dimensões do ajuste atual ou aguarde a implementação científica específica.'
+    });
+  }
 
   // ==========================================
   // 1. CHECAGEM DE DUPLICIDADE DE REGISTROS
@@ -231,7 +294,8 @@ export function validateDataset(
       details: 'Coluna de data não definida.'
     });
   } else {
-    const rawDates = data.map(r => String(r[dateCol] || '').trim()).filter(Boolean);
+    const allRawDates = data.map(r => String(r[dateCol] || '').trim());
+    const rawDates = allRawDates.filter(Boolean);
     const dateCounts: Record<string, number> = {};
     const parsedTimestamps: { idx: number; raw: string; ts: number }[] = [];
 
@@ -242,6 +306,41 @@ export function validateDataset(
         parsedTimestamps.push({ idx, raw: d, ts });
       }
     });
+
+    const invalidDateCount = allRawDates.length - parsedTimestamps.length;
+    if (invalidDateCount > 0) {
+      alerts.push({
+        id: 'invalid_dates',
+        title: `Datas ausentes ou inválidas (${invalidDateCount} linhas)`,
+        message: 'Todas as observações devem possuir uma data válida.',
+        severity: 'CRÍTICO',
+        category: 'time_series',
+        affectedColumns: [dateCol],
+        affectedRowsCount: invalidDateCount,
+        econometricImpact: 'Datas inválidas impedem ordenar a série e calcular corretamente adstock e sazonalidade.',
+        recommendation: 'Corrija ou remova as linhas sem data válida antes do ajuste.'
+      });
+      checks.push({
+        id: 'check_valid_dates',
+        name: 'Validade das Datas',
+        description: 'Verifica se todas as observações têm data válida',
+        status: 'fail',
+        severity: 'CRÍTICO',
+        findingCount: invalidDateCount,
+        affectedColumns: [dateCol],
+        details: `${invalidDateCount} linha(s) sem data válida.`
+      });
+    } else {
+      checks.push({
+        id: 'check_valid_dates',
+        name: 'Validade das Datas',
+        description: 'Verifica se todas as observações têm data válida',
+        status: 'pass',
+        findingCount: 0,
+        affectedColumns: [dateCol],
+        details: 'Todas as datas são válidas.'
+      });
+    }
 
     // Check duplicate dates
     const dupDates = Object.entries(dateCounts).filter(([_, count]) => count > 1);
@@ -359,8 +458,8 @@ export function validateDataset(
           category: 'time_series',
           affectedColumns: [dateCol],
           econometricImpact: 'Intervalos desiguais geram distorções no parâmetro de meia-vida do Adstock e nas estimativas sazonais por Fourier.',
-          recommendation: 'Recomenda-se preencher semanas faltantes com zero ou agregar a base em intervalos regulares de 7 dias.',
-          autoFixAvailable: true
+          recommendation: 'Restaure as observações ausentes na fonte ou agregue a base em uma frequência regular sem fabricar valores.',
+          autoFixAvailable: false
         });
         checks.push({
           id: 'check_time_frequency',
@@ -396,21 +495,21 @@ export function validateDataset(
 
     if (monthsCoverage < 24) {
       alerts.push({
-        id: 'short_history_critical',
+        id: 'short_history_warning',
         title: `Histórico temporal curto (${monthsCoverage} meses)`,
-        message: `O dataset possui apenas ${monthsCoverage} meses. É obrigatório no mínimo 24 meses contínuos para modelagem Geo MMM.`,
-        severity: 'CRÍTICO',
+        message: `O dataset possui ${monthsCoverage} meses. Não há bloqueio artificial por calendário, mas um histórico curto pode limitar a identificação do modelo.`,
+        severity: 'MÉDIO',
         category: 'time_series',
         affectedColumns: [dateCol],
-        econometricImpact: 'Menos de 24 meses impossibilita a convergência dos parâmetros e gera extrema incerteza no adstock e saturação sazonal.',
-        recommendation: 'Reúna pelo menos 2 anos completos (24 meses) de histórico de marketing.'
+        econometricImpact: 'Históricos curtos podem ampliar a incerteza e dificultar a identificação de sazonalidade, adstock e curvas de resposta; a convergência deve ser verificada após o ajuste.',
+        recommendation: 'Amplie o histórico quando possível e avalie convergência, ajuste e incerteza após a execução.'
       });
       checks.push({
         id: 'check_history_volume',
         name: 'Volume do Histórico Temporal',
-        description: 'Mínimo de 24 meses obrigatório para Geo MMM, 36+ meses recomendado para Nacionais',
-        status: 'fail',
-        severity: 'CRÍTICO',
+        description: 'Históricos mais longos ajudam a identificar sazonalidade e efeitos persistentes',
+        status: 'warning',
+        severity: 'MÉDIO',
         findingCount: monthsCoverage,
         affectedColumns: [dateCol],
         details: `${monthsCoverage} meses disponíveis.`
@@ -429,7 +528,7 @@ export function validateDataset(
       checks.push({
         id: 'check_history_volume',
         name: 'Volume do Histórico Temporal',
-        description: 'Mínimo de 24 meses obrigatório para Geo MMM, 36+ meses recomendado para Nacionais',
+        description: 'Históricos mais longos ajudam a identificar sazonalidade e efeitos persistentes',
         status: 'warning',
         severity: 'MÉDIO',
         findingCount: monthsCoverage,
@@ -440,11 +539,11 @@ export function validateDataset(
       checks.push({
         id: 'check_history_volume',
         name: 'Volume do Histórico Temporal',
-        description: 'Mínimo de 24 meses obrigatório para Geo MMM, 36+ meses recomendado para Nacionais',
+        description: 'Históricos mais longos ajudam a identificar sazonalidade e efeitos persistentes',
         status: 'pass',
         findingCount: monthsCoverage,
         affectedColumns: [dateCol],
-        details: `${monthsCoverage} meses de histórico (atende ao padrão ouro).`
+        details: `${monthsCoverage} meses de histórico disponíveis.`
       });
     }
   }
@@ -506,7 +605,7 @@ export function validateDataset(
         affectedColumns: [kpiCol],
         affectedRowsCount: nullKpi,
         econometricImpact: 'Valores nulos no KPI introduzem descontinuidades na série de treino do MCMC e distorcem a perda do modelo.',
-        recommendation: 'Preencha ou impute os valores ausentes de vendas antes de rodar o modelo.',
+        recommendation: 'Corrija os valores ausentes do KPI na fonte antes de rodar o modelo.',
         autoFixAvailable: true
       });
       checks.push({
@@ -742,8 +841,8 @@ export function validateDataset(
           affectedColumns: [col],
           affectedRowsCount: nullCount,
           econometricImpact: 'Valores vazios de investimento impedem o cálculo exato do Adstock acumulado nas semanas seguintes.',
-          recommendation: 'Preencha com zero ou utilize o saneamento automático de dados.',
-          autoFixAvailable: true
+          recommendation: 'Corrija o investimento ausente na fonte antes de ajustar o modelo.',
+          autoFixAvailable: false
         });
       }
 
@@ -758,8 +857,8 @@ export function validateDataset(
           affectedColumns: [col],
           affectedRowsCount: negCount,
           econometricImpact: 'Investimento negativo viola os axiomas econométricos de retornos marginais positivos e corrompe as curvas de Hill.',
-          recommendation: 'Valores de mídia devem ser estritamente não-negativos. Trunque para 0.',
-          autoFixAvailable: true
+          recommendation: 'Corrija o valor na fonte ou remova a observação/canal conforme uma decisão documentada.',
+          autoFixAvailable: false
         });
       }
 
@@ -843,11 +942,6 @@ export function validateDataset(
     matrix: []
   };
 
-  const channelSeries: Record<string, number[]> = {};
-  for (const col of spendCols) {
-    channelSeries[col] = data.map(r => Number(r[col]) || 0);
-  }
-
   let highCorrCount = 0;
   for (let i = 0; i < spendCols.length; i++) {
     const rowCorr: number[] = [];
@@ -855,7 +949,13 @@ export function validateDataset(
       if (i === j) {
         rowCorr.push(1.0);
       } else {
-        const corr = calculatePearsonCorrelation(channelSeries[spendCols[i]], channelSeries[spendCols[j]]);
+        const paired = data
+          .map(row => [Number(row[spendCols[i]]), Number(row[spendCols[j]])] as const)
+          .filter(([left, right]) => Number.isFinite(left) && Number.isFinite(right));
+        const corr = calculatePearsonCorrelation(
+          paired.map(([left]) => left),
+          paired.map(([, right]) => right)
+        );
         rowCorr.push(Math.round(corr * 100) / 100);
 
         if (i < j && corr > 0.85) {
@@ -899,7 +999,7 @@ export function validateDataset(
       message: 'Não foram mapeadas variáveis de controle como feriados, eventos promocionais, índice de preços ou macroeconomia.',
       severity: 'BAIXO',
       category: 'statistics',
-      econometricImpact: 'O modelo dependerá exclusivamente de termos harmônicos de Fourier para isolar sazonalidade e linha de base.',
+      econometricImpact: 'Sem controles relevantes, variações externas podem ser confundidas com efeitos de mídia ou com a evolução da linha de base.',
       recommendation: 'Variáveis de controle específicas protegem contra atribuição espúria de picos de vendas à mídia.'
     });
   }
@@ -926,16 +1026,24 @@ export function validateDataset(
   const hasNoDate = !dateCol;
   const hasNoKpi = !kpiCol;
   const hasNoChannels = spendCols.length === 0;
-  const isCriticallySmall = hasNoDate ? (numRows < 15) : (monthsCoverageGlobal < 24);
+  const isCriticallySmall = numRows < 15;
 
-  const isModelBlocked = hasNoDate || hasNoKpi || hasNoChannels || isCriticallySmall || criticalCount > 0;
+  const modelInputErrorIds = new Set([
+    'exact_duplicate_rows', 'duplicate_dates', 'invalid_dates', 'kpi_nulls',
+    'kpi_negatives', 'missing_media_exposure', 'multiple_date_columns',
+    'multiple_kpi_columns', 'unsupported_model_dimension'
+  ]);
+  const hasInvalidModelValues = alerts.some(alert =>
+    modelInputErrorIds.has(alert.id) || alert.id.startsWith('null_spend_') || alert.id.startsWith('neg_spend_') || alert.id.startsWith('zero_spend_')
+  );
+  const isModelBlocked = hasNoDate || hasNoKpi || hasNoChannels || isCriticallySmall || criticalCount > 0 || hasInvalidModelValues;
   let blockingReason: string | undefined;
 
   if (hasNoDate) blockingReason = 'Coluna de data temporal obrigatória não está definida.';
   else if (hasNoKpi) blockingReason = 'Coluna de KPI (métrica dependente) obrigatória não está definida.';
   else if (hasNoChannels) blockingReason = 'Nenhum canal de investimento em mídia foi selecionado.';
-  else if (isCriticallySmall) blockingReason = `Volume de dados insuficiente (${hasNoDate ? numRows + ' linhas' : monthsCoverageGlobal + ' meses'}). Necessário ao menos 24 meses.`;
-  else if (criticalCount > 0) blockingReason = alerts.find(a => a.severity === 'CRÍTICO')?.title;
+  else if (isCriticallySmall) blockingReason = `Volume de dados insuficiente (${numRows} linhas). Necessário ao menos 15 observações para executar o pipeline.`;
+  else if (criticalCount > 0 || hasInvalidModelValues) blockingReason = alerts.find(a => a.severity === 'CRÍTICO' || modelInputErrorIds.has(a.id) || a.id.startsWith('null_spend_') || a.id.startsWith('neg_spend_') || a.id.startsWith('zero_spend_'))?.title;
 
   // Health Score (0 - 100)
   let healthScore = 100;
@@ -982,9 +1090,8 @@ export function validateDataset(
 /**
  * Automatically cleans and sanitizes dataset:
  * - Removes exact duplicate rows
- * - Aggregates duplicate dates by summing spends and KPI
- * - Clips negative values to zero
- * - Imputes missing numeric values with 0 or linear forward fill
+ * - Aggregates duplicate dates using metric-aware rules
+ * - Preserves invalid scientific values so validation can block the model
  * - Sorts chronologically by date
  */
 export function sanitizeDataset(
@@ -1020,7 +1127,8 @@ export function sanitizeDataset(
     fixedIssues.push(`Removidos ${recordsDeduplicated} registros duplicados exatos.`);
   }
 
-  // 2. Aggregate duplicate dates
+  // 2. Aggregate duplicate dates without inventing observations. Flow metrics
+  // (KPI, spend and exposure) are additive; controls and frequency are averaged.
   const groupedByDate: Record<string, DataRow[]> = {};
   for (const row of deduplicatedRows) {
     const rawDate = String(row[dateCol] || '').trim();
@@ -1040,21 +1148,36 @@ export function sanitizeDataset(
       duplicateDateAggregations += rows.length - 1;
       const combined: DataRow = { [dateCol]: dateVal };
       for (const col of numericCols) {
-        const sum = rows.reduce((acc, r) => acc + (Number(r[col]) || 0), 0);
-        combined[col] = sum;
+        const mapping = mappings.find(item => item.columnName === col);
+        const values = rows
+          .map(row => Number(row[col]))
+          .filter(value => Number.isFinite(value));
+        if (values.length === 0) {
+          combined[col] = null;
+          continue;
+        }
+        const shouldAverage = mapping?.mappedType === 'control'
+          || mapping?.mappedType === 'media_frequency'
+          || mapping?.mappedType === 'population'
+          || mapping?.mappedType === 'revenue_per_kpi';
+        const total = values.reduce((sum, value) => sum + value, 0);
+        combined[col] = shouldAverage ? total / values.length : total;
       }
       aggregatedRows.push(combined);
     }
   }
 
   if (duplicateDateAggregations > 0) {
-    fixedIssues.push(`Consolidados ${duplicateDateAggregations} registros de datas duplicadas somando investimentos e KPI.`);
+    fixedIssues.push(`Consolidados ${duplicateDateAggregations} registros de datas duplicadas com agregação específica por tipo de métrica.`);
   }
 
   // 3. Sort chronologically
   const sorted = [...aggregatedRows].sort((a, b) => {
-    const tsA = parseDateSafe(a[dateCol]) || 0;
-    const tsB = parseDateSafe(b[dateCol]) || 0;
+    const tsA = parseDateSafe(a[dateCol]);
+    const tsB = parseDateSafe(b[dateCol]);
+    if (tsA === null && tsB === null) return 0;
+    if (tsA === null) return 1;
+    if (tsB === null) return -1;
     return tsA - tsB;
   });
 
@@ -1063,43 +1186,9 @@ export function sanitizeDataset(
     fixedIssues.push('Série temporal reordenada em ordem cronológica estrita.');
   }
 
-  // 4. Clip negative values & impute nulls (Forward-Fill for KPI/Controls, Zero for Media)
-  const lastValidValues: Record<string, number> = {};
-  
-  const cleanedRows: DataRow[] = sorted.map(row => {
-    const clean: DataRow = { ...row };
-    for (const col of numericCols) {
-      let val = clean[col];
-      const mapping = mappings.find(m => m.columnName === col);
-      const isMedia = mapping?.mappedType === 'media_spend' || mapping?.mappedType === 'media_impressions';
-      
-      if (val === null || val === undefined || val === '' || isNaN(Number(val))) {
-        if (!isMedia && lastValidValues[col] !== undefined) {
-          clean[col] = lastValidValues[col]; // Forward Fill (carry forward last known value)
-        } else {
-          clean[col] = 0;
-        }
-        missingValuesImputed++;
-      } else {
-        const num = Number(val);
-        if (num < 0) {
-          clean[col] = 0;
-          negativeValuesClipped++;
-        } else {
-          clean[col] = num;
-          lastValidValues[col] = num;
-        }
-      }
-    }
-    return clean;
-  });
-
-  if (negativeValuesClipped > 0) {
-    fixedIssues.push(`Truncados ${negativeValuesClipped} valores negativos para zero (0).`);
-  }
-  if (missingValuesImputed > 0) {
-    fixedIssues.push(`Imputados ${missingValuesImputed} valores nulos/vazios com zero (0).`);
-  }
+  // Missing and negative measurements are never replaced with synthetic zeroes.
+  // They remain visible to validateDataset, which blocks fitting until corrected.
+  const cleanedRows: DataRow[] = sorted.map(row => ({ ...row }));
 
   return {
     cleanedRows,

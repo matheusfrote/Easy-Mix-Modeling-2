@@ -37,9 +37,27 @@ describe('MMMServiceClient', () => {
         totalSpend: 10,
         totalKpi: 100,
         blendedRoi: 1.4,
-        channels: [{ channelName: 'TV', roi: 1.4, marginalRoi: 1.1 }],
-        diagnostics: { rSquared: 0.8, mape: 10, wmape: 9, gelmanRubinRhat: 1.03 },
-        responseCurves: { TV: { channelName: 'TV', points: [] } }
+        kpiType: 'revenue',
+        channels: [{
+          channelName: 'TV', spend: 10, spendShare: 100,
+          incrementalKpi: 14, contribution: 50, contributionShare: 50,
+          roi: 1.4, marginalRoi: 1.1,
+          incrementalOutcomeInterval: { ci025: 10, ci050: 14, ci975: 18 },
+          contributionInterval: { ci025: 30, ci050: 50, ci975: 70 },
+          roiInterval: { ci025: 1, ci050: 1.4, ci975: 1.8 },
+          marginalRoiInterval: { ci025: 0.8, ci050: 1.1, ci975: 1.4 },
+          saturationLevel: 0.55,
+          saturationInterval: { ci025: 0.4, ci050: null, ci975: 0.7 },
+          currentMediaUnits: 1000,
+          adstockDecay: 0.4,
+          adstockDecayInterval: { ci025: 0.2, ci050: null, ci975: 0.6 },
+          adstockHalfLifeWeeks: null
+        }],
+        diagnostics: {
+          rSquared: 0.8, mape: 10, wmape: 9, gelmanRubinRhat: 1.03,
+          isConverged: true
+        },
+        responseCurves: { TV: { channelName: 'TV', currentSpend: 10, points: [] } }
       },
       warnings: []
     };
@@ -72,6 +90,21 @@ describe('MMMServiceClient', () => {
     expect(result.status).toBe('error');
     expect(result.httpStatus).toBe(502);
     expect(result.errors?.[0].code).toBe('INVALID_RESPONSE');
+  });
+
+  it('rejects hardcoded-looking missing values instead of accepting a weak success contract', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      status: 'success', modelId: 'model-123', engine: 'google-meridian', engineVersion: '1.8.0',
+      results: {
+        totalSpend: 10, totalKpi: 100, blendedRoi: 0, kpiType: 'revenue',
+        channels: [{ channelName: 'TV', roi: 0, marginalRoi: 0 }],
+        diagnostics: { rSquared: 0, mape: 0, wmape: 0, gelmanRubinRhat: 1, isConverged: true },
+        responseCurves: {}
+      }
+    })));
+
+    const result = await new MMMServiceClient('http://meridian.test').fitModel(payload);
+    expect(result).toMatchObject({ status: 'error', httpStatus: 502 });
   });
 
   it('preserves Python validation status, code, message, and stage', async () => {
@@ -124,12 +157,42 @@ describe('MMMServiceClient', () => {
     expect(result.meridianModuleLoaded).toBe(false);
   });
 
-  it('returns 501 for intentionally unimplemented adjacent features', async () => {
+  it('uses modelId for optimizer and scenario without frontend model reconstruction', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'success', modelId: 'model-123', engine: 'google-meridian', engineVersion: '1.8.0',
+        results: {
+          modelId: 'model-123', currentTotalBudget: 100, targetTotalBudget: 110,
+          expectedCurrentKpi: 115, expectedOptimizedKpi: 120, incrementalKpi: 5,
+          liftPercentage: 4.35, blendedCurrentRoi: 1.15, blendedProjectedRoi: 1.2,
+          reallocations: [{
+            channelName: 'TV', currentSpend: 100, recommendedSpend: 110,
+            deltaSpend: 10, deltaPercentage: 10, currentRoi: 1.15,
+            optimizedRoi: 1.2, marginalRoi: 1.1
+          }]
+        }, warnings: []
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'success', modelId: 'model-123', engine: 'google-meridian', engineVersion: '1.8.0',
+        results: {
+          id: 'scenario-1', modelId: 'model-123', totalSpend: 100,
+          expectedKpi: 115, expectedKpiLower: 100, expectedKpiUpper: 130,
+          incrementalKpi: 5, blendedRoi: 1.1, channelSpends: { TV: 100 }
+        }, warnings: []
+      }));
+    vi.stubGlobal('fetch', fetchMock);
     const client = new MMMServiceClient('http://meridian.test');
-    const optimizer = await client.optimizeBudget({ targetTotalBudget: 100 });
-    const simulation = await client.simulateScenario({ channelSpends: { TV: 100 } });
+    const optimizer = await client.optimizeBudget({
+      modelId: 'model-123', targetTotalBudget: 100, decisionEngineVersion: '1.1.0'
+    });
+    const simulation = await client.simulateScenario({
+      modelId: 'model-123', channelSpends: { TV: 100 }, decisionEngineVersion: '1.1.0'
+    });
 
-    expect(optimizer).toMatchObject({ status: 'not_implemented', httpStatus: 501 });
-    expect(simulation).toMatchObject({ status: 'not_implemented', httpStatus: 501 });
+    expect(optimizer).toMatchObject({ status: 'success', httpStatus: 200, modelId: 'model-123' });
+    expect(simulation).toMatchObject({ status: 'success', httpStatus: 200, modelId: 'model-123' });
+    const optimizerBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(optimizerBody).toEqual({ modelId: 'model-123', targetTotalBudget: 100, decisionEngineVersion: '1.1.0' });
+    expect(optimizerBody).not.toHaveProperty('activeModel');
   });
 });

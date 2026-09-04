@@ -44,7 +44,7 @@ export const TOUR_STEPS: TourStep[] = [
       { icon: '📅', text: 'Granularidade semanal recomendada para capturar ciclos completos de compra (24 meses).' },
       { icon: '💰', text: 'Colunas de investimento (spend) por canal de mídia (Google, Meta, TV, etc.).' },
       { icon: '🎯', text: 'Métrica de KPI alvo de negócio (Receita em R$, Conversões ou Vendas).' },
-      { icon: '✨', text: 'Você pode testar imediatamente clicando em "Carregar Dataset Demo (24 meses / 104 sem.)".' }
+      { icon: '🔗', text: 'Cada canal pago precisa de colunas distintas de investimento e exposição; investimento não é tratado como impressões.' }
     ],
     proTip: 'Dica: Você pode fazer upload de arquivos .CSV ou .XLSX arrastando diretamente para a área demarcada.',
     actionText: 'Ver Tela de Upload'
@@ -75,12 +75,12 @@ export const TOUR_STEPS: TourStep[] = [
     badge: 'Passo 3 de 6',
     icon: CheckCircle2,
     description:
-      'Antes de treinar o modelo bayesiano, a base passa por rigorosos testes econométricos para evitar vieses e garantir confiabilidade estatística com um score de 0 a 100.',
+      'Antes de ajustar o modelo bayesiano, a base passa por testes determinísticos de pré-condições e recebe um score informativo de 0 a 100.',
     keyPoints: [
       { icon: '🔍', text: 'Validação de lacunas temporais (gaps), valores nulos ou negativos.' },
       { icon: '📊', text: 'Teste de variabilidade de investimento (Coeficiente de Variação CV ≥ 5%).' },
       { icon: '⚡', text: 'Detecção de multicolinearidade (correlação excessiva entre canais).' },
-      { icon: '🪄', text: 'Botão "Auto-Fix & Higienizar": Corrige automaticamente anomalias detectadas.' }
+      { icon: '🧹', text: 'A higienização estrutural ordena datas e agrega duplicatas; valores ausentes ou inválidos precisam ser corrigidos na fonte.' }
     ],
     proTip: 'Score mínimo recomendado: 75/100 para prosseguir com segurança econométrica.',
     actionText: 'Ver Data Readiness'
@@ -107,16 +107,16 @@ export const TOUR_STEPS: TourStep[] = [
     id: 'step-channels',
     view: 'channels',
     title: '5. Performance por Canal & Retorno Marginal (mROI)',
-    subtitle: 'Curvas de Saturação de Hill & Adstock',
+    subtitle: 'Métricas posteriores e curvas de resposta',
     badge: 'Passo 5 de 6',
     icon: TrendingUp,
     description:
-      'Compreenda a fundo onde o investimento satura e onde ainda há margem de crescimento exponencial com as curvas de resposta de Hill.',
+      'Compare métricas posteriores e curvas de resposta calculadas pelo Analyzer para os canais do modelo ativo.',
     keyPoints: [
       { icon: '💡', text: 'ROI Médio: Retorno histórico consolidado sobre todo o capital investido.' },
-      { icon: '🚀', text: 'ROI Marginal (mROI): Receita esperada pelo próximo R$ 1,00 incremental.' },
-      { icon: '⏳', text: 'Meia-vida do Adstock: Duração do efeito residual dos anúncios na mente do consumidor.' },
-      { icon: '🛑', text: 'Zona de Saturação: Ponto exato onde retornos decrescentes passam a gerar desperdício.' }
+      { icon: '🚀', text: 'ROI Marginal (mROI): Variação esperada do resultado para uma pequena variação de investimento.' },
+      { icon: '📉', text: 'Curva de resposta: Resultado incremental e intervalo de credibilidade para diferentes níveis de investimento.' },
+      { icon: '🛡️', text: 'Métricas que a versão ativa do Meridian não fornece são exibidas como indisponíveis, sem interpolação local.' }
     ],
     proTip: 'Regra de ouro: Nunca baseie a alocação futura apenas no ROI médio; utilize sempre o Retorno Marginal (mROI)!',
     actionText: 'Ver Curvas dos Canais'
@@ -129,12 +129,12 @@ export const TOUR_STEPS: TourStep[] = [
     badge: 'Passo 6 de 6',
     icon: Calculator,
     description:
-      'O otimizador calcula matematicamente a redistribuição perfeita de verba entre canais para maximizar o faturamento total sem gastar um único centavo a mais.',
+      'O BudgetOptimizer oficial calcula uma alocação para o orçamento informado usando o modelo e o posterior ativos.',
     keyPoints: [
       { icon: '⚖️', text: 'Equimarginalidade: Equaliza o retorno marginal de todos os canais ativos.' },
       { icon: '💸', text: 'Recomendações claras: Quanto aumentar (+) e quanto reduzir (-) por canal.' },
-      { icon: '🎛️', text: 'Simulador What-If: Ajuste sliders livres e veja o impacto projetado em tempo real.' },
-      { icon: '🤖', text: 'Consultor Gemini AI: Faça perguntas como "Onde colocar R$ 10.000 extras?".' }
+      { icon: '🎛️', text: 'Simulador What-If: Informe os investimentos e solicite uma nova avaliação científica pelo modelo ativo.' },
+      { icon: '🧭', text: 'Interpretação determinística: regras auditáveis explicam os resultados do Optimizer.' }
     ],
     proTip: 'Dica final: Acesse a aba "Relatório Executivo" para gerar o resumo consolidado e exportar em PDF para a diretoria.',
     actionText: 'Ver Otimizador de Orçamento'

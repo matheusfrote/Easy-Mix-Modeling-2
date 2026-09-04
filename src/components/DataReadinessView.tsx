@@ -76,7 +76,7 @@ export const DataReadinessView: React.FC<DataReadinessViewProps> = ({
     setIsSanitizing(true);
     try {
       await onSanitizeData();
-      setSanitizedMessage('Saneamento automático concluído! Linhas duplicadas, valores nulos e negativos foram ajustados.');
+      setSanitizedMessage('Saneamento estrutural concluído. Valores ausentes e negativos foram preservados para correção na fonte, sem preenchimento artificial.');
       setTimeout(() => setSanitizedMessage(null), 6000);
     } catch (e) {
       console.error(e);
@@ -830,7 +830,7 @@ export const DataReadinessView: React.FC<DataReadinessViewProps> = ({
               Matriz de Critérios Econométricos do Modelo Bayesiano
             </h3>
             <p className="text-xs text-slate-500">
-              Verificações determinísticas para garantir robustez e convergência do algoritmo MCMC
+              Verificações determinísticas de pré-condições dos dados; a convergência só é conhecida após o MCMC
             </p>
           </div>
 

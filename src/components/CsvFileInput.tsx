@@ -184,26 +184,21 @@ export const CsvFileInput: React.FC<CsvFileInputProps> = ({
     const templateHeaders = [
       'date',
       'google_search_spend',
+      'google_search_clicks',
       'meta_ads_spend',
+      'meta_ads_impressions',
       'youtube_spend',
-      'tiktok_spend',
+      'youtube_impressions',
       'tv_spend',
+      'tv_impressions',
       'promo_discount',
       'holiday_flag',
       'sales_revenue'
     ];
 
-    const sampleRows = [
-      ['2023-01-01', '12500.00', '18200.00', '8500.00', '4200.00', '25000.00', '0.05', '1', '245000.00'],
-      ['2023-01-08', '11800.00', '17500.00', '8100.00', '4000.00', '25000.00', '0.00', '0', '231000.00'],
-      ['2023-01-15', '13200.00', '19000.00', '8900.00', '4500.00', '25000.00', '0.00', '0', '252000.00'],
-      ['2023-01-22', '14000.00', '19800.00', '9200.00', '4800.00', '25000.00', '0.10', '0', '268000.00'],
-      ['2023-01-29', '12900.00', '18400.00', '8700.00', '4300.00', '25000.00', '0.00', '0', '241000.00']
-    ];
-
     const csvContent =
       'data:text/csv;charset=utf-8,' +
-      [templateHeaders.join(','), ...sampleRows.map(r => r.join(','))].join('\n');
+      templateHeaders.join(',');
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
@@ -326,7 +321,7 @@ export const CsvFileInput: React.FC<CsvFileInputProps> = ({
             </span>
             <span>•</span>
             <span className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
-              Tamanho máx: 50MB
+              Tamanho máx: 15MB
             </span>
           </div>
 
@@ -378,7 +373,7 @@ export const CsvFileInput: React.FC<CsvFileInputProps> = ({
           <div>
             <p className="font-semibold text-slate-800 dark:text-slate-200">2. Mídia & Investimento</p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Valores numéricos de gasto por canal (ex: Google, Meta, TV).
+              Para cada canal, inclua gasto e exposição separadamente (ex.: spend + impressions/clicks).
             </p>
           </div>
         </div>

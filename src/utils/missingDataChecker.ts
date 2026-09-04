@@ -172,7 +172,7 @@ export function analyzeDateRangeMissingData(
     'O Google Meridian utiliza amostragem Bayesiana (MCMC) e transformações de Adstock (efeito de memória acumulada). Lacunas e dados ausentes acima de 10% distorcem a taxa de decaimento, enviesam o cálculo do ROI e inflam os intervalos de credibilidade.';
 
   const recommendation =
-    'Recomendamos preencher os valores ausentes utilizando imputação por mediana móvel no módulo de Check-up ou ajustar o filtro de datas para um período contínuo.';
+    'Corrija os valores ausentes na fonte ou ajuste o filtro de datas para um período contínuo. O aplicativo não cria medições artificiais.';
 
   return {
     hasHighMissingData,

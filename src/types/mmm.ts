@@ -1,6 +1,18 @@
 export type ChannelType = 'search' | 'social' | 'video' | 'display' | 'tv' | 'digital' | 'other';
 
-export type ColumnType = 'date' | 'kpi' | 'media_spend' | 'media_impressions' | 'media_clicks' | 'control' | 'ignore';
+export type ColumnType =
+  | 'date'
+  | 'kpi'
+  | 'media_spend'
+  | 'media_impressions'
+  | 'media_clicks'
+  | 'media_reach'
+  | 'media_frequency'
+  | 'geo'
+  | 'population'
+  | 'revenue_per_kpi'
+  | 'control'
+  | 'ignore';
 
 export interface ColumnMapping {
   columnName: string;
@@ -148,7 +160,7 @@ export interface MeridianModelConfig {
     channelType: ChannelType;
   }[];
   controlColumns: string[];
-  seasonalityFourierTerms: number; // e.g. 2
+  seasonalityFourierTerms?: number; // legacy field; not sent by production UI
   mcmcChains: number;
   mcmcDraws: number;
   mcmcWarmup: number;
@@ -157,44 +169,57 @@ export interface MeridianModelConfig {
 }
 
 export interface CredibleInterval {
-  ci025: number; // 2.5% quantile
-  ci050: number; // Median (50%)
-  ci975: number; // 97.5% quantile
+  ci025: number | null; // 2.5% quantile
+  ci050: number | null; // Median (50%)
+  ci975: number | null; // 97.5% quantile
 }
 
 export interface ChannelMetrics {
   channelName: string;
-  spend: number;
-  spendShare: number;
-  incrementalKpi: number;
-  kpiShare: number;
-  roi: number;
+  spend: number | null;
+  spendShare: number | null;
+  exposure?: number | null;
+  incrementalOutcome?: number | null;
+  incrementalKpi: number | null;
+  incrementalOutcomeInterval?: CredibleInterval;
+  kpiShare: number | null;
+  contribution?: number | null;
+  contributionShare?: number | null;
+  contributionInterval?: CredibleInterval;
+  roi: number | null;
   roiInterval: CredibleInterval;
-  roas?: number;
-  marginalRoi: number; // current mROI
+  roas?: number | null;
+  marginalRoi: number | null; // current mROI
   marginalRoiInterval: CredibleInterval;
-  saturationLevel: number; // 0 - 100%
-  adstockDecay: number; // estimated alpha (0-1)
-  adstockHalfLifeWeeks: number;
-  halfSaturationSpend: number; // spend where curve hits 50% max incremental
-  slope: number;
-  confidence: 'Alta' | 'Média' | 'Baixa';
-  saturationStatus: 'Subinvestido' | 'Ótimo' | 'Próximo à Saturação' | 'Saturado';
+  effectiveness?: number | null;
+  effectivenessInterval?: CredibleInterval;
+  cpm?: number | null;
+  costPerIncrementalKpi?: number | null;
+  saturationLevel?: number | null; // posterior Hill value at median historical media units
+  saturationInterval?: CredibleInterval;
+  currentMediaUnits?: number | null;
+  adstockDecay?: number | null; // posterior adstock function at lag 1
+  adstockDecayInterval?: CredibleInterval;
+  adstockHalfLifeWeeks?: number | null;
+  halfSaturationSpend?: number | null;
+  slope?: number | null;
+  confidence?: 'Alta' | 'Média' | 'Baixa' | null;
+  saturationStatus?: 'Subinvestido' | 'Ótimo' | 'Próximo à Saturação' | 'Saturado' | null;
 }
 
 export interface ResponseCurvePoint {
-  spend: number;
+  spend: number | null;
   spendMultiplier: number; // 0.0 to 3.0x
-  incrementalKpi: number;
-  incrementalKpiLower: number;
-  incrementalKpiUpper: number;
-  marginalRoi: number;
-  roi: number;
+  incrementalKpi: number | null;
+  incrementalKpiLower: number | null;
+  incrementalKpiUpper: number | null;
+  marginalRoi: number | null;
+  roi: number | null;
 }
 
 export interface ChannelResponseCurve {
   channelName: string;
-  currentSpend: number;
+  currentSpend: number | null;
   points: ResponseCurvePoint[];
 }
 
@@ -223,29 +248,33 @@ export interface PosteriorMetrics {
 }
 
 export interface MeridianDiagnostics {
-  rSquared: number;
-  mape: number; // Mean Absolute Percentage Error (%)
-  rmse: number;
-  bayesianR2: number | 'N/A';
-  gelmanRubinRhat: number | 'N/A'; // Max Gelman-Rubin R-hat across parameters (< 1.05 is good)
-  effectiveSampleSize: number | 'N/A'; // Min Effective Sample Size (> 400 is good)
+  rSquared: number | null;
+  mape: number | null; // Mean Absolute Percentage Error (%)
+  wmape?: number | null;
+  rmse?: number | null;
+  bayesianR2?: number | null;
+  gelmanRubinRhat: number | null;
+  rhat?: number | null;
+  effectiveSampleSize?: number | null;
   bulkEss?: number | 'N/A';
   tailEss?: number | 'N/A';
   looCv?: number | 'N/A';
   waic?: number | 'N/A';
   divergencesCount?: number | 'N/A';
-  isConverged: boolean;
-  warnings: string[];
-  baselineContribution: number;
-  baselineShare: number;
-  controlsContribution: number;
-  controlsShare: number;
-  mediaContribution: number;
-  mediaShare: number;
-  totalObservedKpi: number;
-  totalPredictedKpi: number;
+  isConverged: boolean | null;
+  warnings?: string[];
+  baselineContribution?: number | null;
+  baselineShare?: number | null;
+  controlsContribution?: number | null;
+  controlsShare?: number | null;
+  mediaContribution?: number | null;
+  mediaShare?: number | null;
+  totalObservedKpi?: number | null;
+  totalPredictedKpi?: number | null;
+  predictiveAccuracy?: unknown;
+  rhatSummary?: unknown;
   posteriorMetrics?: PosteriorMetrics;
-  timeSeriesFit: {
+  timeSeriesFit?: {
     date: string;
     actual: number;
     predicted: number;
@@ -268,18 +297,20 @@ export interface MeridianModelResults {
   errorMessage?: string;
   totalSpend: number;
   totalKpi: number;
-  blendedRoi: number;
-  blendedRoas: number;
+  blendedRoi: number | null;
+  blendedRoas?: number | null;
+  kpiType?: 'revenue' | 'non_revenue';
   channels: ChannelMetrics[];
   responseCurves: Record<string, ChannelResponseCurve>;
   diagnostics: ModelDiagnostics;
-  correlationMatrix: {
+  correlationMatrix?: {
     channels: string[];
     matrix: number[][];
   };
-  mostEfficientChannel: string;
-  saturatedChannel: string;
-  bestOpportunityChannel: string;
+  mostEfficientChannel: string | null;
+  saturatedChannel: string | null;
+  bestOpportunityChannel: string | null;
+  dataLineage?: DataLineageEntry[];
   actualVsPredicted?: {
     date: string;
     actual: number;
@@ -291,20 +322,21 @@ export interface MeridianModelResults {
 
 export interface BudgetReallocation {
   channelName: string;
-  currentSpend: number;
-  currentSpendShare: number;
-  recommendedSpend: number;
-  recommendedSpendShare: number;
-  deltaSpend: number;
-  percentageChange: number;
-  deltaPercentage?: number;
-  currentKpi: number;
-  projectedKpi: number;
-  deltaKpi: number;
-  currentRoi: number;
-  projectedRoi: number;
-  marginalRoi: number;
-  recommendationReason: string;
+  currentSpend: number | null;
+  currentSpendShare: number | null;
+  recommendedSpend: number | null;
+  recommendedSpendShare: number | null;
+  deltaSpend: number | null;
+  percentageChange: number | null;
+  deltaPercentage?: number | null;
+  currentKpi: number | null;
+  projectedKpi: number | null;
+  deltaKpi: number | null;
+  currentRoi: number | null;
+  projectedRoi: number | null;
+  optimizedRoi?: number | null;
+  marginalRoi: number | null;
+  recommendationReason: string | null;
   safeThresholdPercentage?: number;
   minSafeSpend?: number;
   maxSafeSpend?: number;
@@ -314,36 +346,39 @@ export interface BudgetReallocation {
 }
 
 export interface BudgetOptimizationResult {
-  currentTotalBudget: number;
+  currentTotalBudget: number | null;
   targetTotalBudget: number;
-  expectedCurrentKpi: number;
-  expectedOptimizedKpi: number;
-  totalIncrementalKpi: number;
-  overallLiftPercentage: number;
-  blendedCurrentRoi: number;
-  blendedProjectedRoi: number;
+  expectedCurrentKpi: number | null;
+  expectedOptimizedKpi: number | null;
+  totalIncrementalKpi: number | null;
+  incrementalKpi?: number | null;
+  overallLiftPercentage: number | null;
+  liftPercentage?: number | null;
+  blendedCurrentRoi: number | null;
+  blendedProjectedRoi: number | null;
   reallocations: BudgetReallocation[];
   marginalEqualizationGraph: {
     channelName: string;
-    currentMroi: number;
-    optimizedMroi: number;
+    currentMroi: number | null;
+    optimizedMroi: number | null;
   }[];
   explanation?: string;
 }
 
 export interface ScenarioDefinition {
   id: string;
-  name: string;
-  description: string;
+  modelId?: string;
+  name?: string;
+  description?: string;
   channelSpends: Record<string, number>;
   totalSpend: number;
-  expectedKpi: number;
-  expectedKpiLower: number;
-  expectedKpiUpper: number;
-  incrementalKpi: number;
-  blendedRoi: number;
-  marginalRoi: number;
-  efficiencyRating: 'Alta' | 'Média' | 'Retorno Decrescente';
+  expectedKpi: number | null;
+  expectedKpiLower: number | null;
+  expectedKpiUpper: number | null;
+  incrementalKpi: number | null;
+  blendedRoi: number | null;
+  marginalRoi?: number | null;
+  efficiencyRating?: 'Alta' | 'Média' | 'Retorno Decrescente' | null;
   liftOverBaseline?: number;
   liftPercentage?: string | number;
   projectedTotalKpi?: number;
@@ -364,17 +399,38 @@ export interface AIInsightItem {
 }
 
 export interface ExecutiveReportData {
+  modelId: string;
+  decisionEngineVersion: string;
+  source: 'deterministic';
   title: string;
-  companyName: string;
+  companyName: string | null;
   generatedAt: string;
   summary: string;
-  dataReadinessSummary: string;
+  dataReadinessSummary: string | null;
   historicalSpendSummary: string;
   channelPerformanceSummary: string;
   budgetRecommendationSummary: string;
-  scenariosSummary: string;
+  scenariosSummary: string | null;
   risksAndLimitations: string[];
   methodologyNotes: string[];
+  dataLineage: DataLineageEntry[];
+  aiNarrative?: AINarrative | null;
+  aiStatus?: 'not_requested' | 'generated' | 'disabled' | 'timeout' | 'failed' | 'invalid';
+  aiCacheHit?: boolean;
+}
+
+export interface DataLineageEntry {
+  metric: string;
+  source: string;
+  modelId: string;
+  decisionEngineVersion: string | null;
+}
+
+export interface AINarrative {
+  executiveSummary: string;
+  keyFindings: string[];
+  recommendedActions: string[];
+  risks: string[];
 }
 
 export interface DateRangeFilter {

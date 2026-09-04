@@ -18,6 +18,10 @@ export function sanitizeSpreadsheetCell(value: any): any {
   const trimmed = value.trim();
   if (trimmed.length === 0) return value;
 
+  // A numeric measurement such as "-10" is data, not a spreadsheet formula.
+  // Preserve it so scientific validation can report the negative value.
+  if (Number.isFinite(Number(trimmed))) return value;
+
   const firstChar = trimmed[0];
   if (['=', '+', '-', '@', '\t', '\r'].includes(firstChar)) {
     // Escape cell by prepending single quote

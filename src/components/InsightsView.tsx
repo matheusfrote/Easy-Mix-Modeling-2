@@ -57,7 +57,7 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
     setIsAnswering(true);
     setCustomQuestion(question);
     try {
-      const answer = await apiClient.getBudgetExplanation(undefined, question);
+      const answer = await apiClient.getBudgetExplanation(results?.totalSpend, question);
       setCustomAnswer(answer);
     } catch (e) {
       console.error('Error answering question:', e);
@@ -71,38 +71,38 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
       <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs max-w-xl mx-auto my-12">
         <Sparkles className="w-12 h-12 text-slate-400 mx-auto mb-3" />
         <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Modelo não disponível</h3>
-        <p className="text-xs text-slate-500 mt-1">Execute o modelo Meridian para habilitar os insights automáticos da IA.</p>
+        <p className="text-xs text-slate-500 mt-1">Execute o modelo Meridian para habilitar os insights determinísticos.</p>
       </div>
     );
   }
 
   const QUICK_QUESTIONS = [
-    'Se eu tenho mais R$ 10.000 para investir, onde devo colocar e por quê?',
-    'Qual canal devo cortar primeiro se o orçamento diminuir 15%?',
-    'Quanto da minha receita vem do marketing vs demanda orgânica natural?',
-    'Quais canais estão mais próximos do teto de saturação?'
+    'Quais aumentos têm suporte de todas as evidências exigidas?',
+    'Quais reduções têm suporte de todas as evidências exigidas?',
+    'Quais decisões têm evidência insuficiente?',
+    'Quais realocações o optimizer oficial indicou para o orçamento atual?'
   ];
 
   return (
     <div id="insights-view" className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 max-w-7xl w-full mx-auto min-w-0">
       {/* Semantic Heading for Search Engines and Accessibility */}
       <h1 className="sr-only">
-        Consultoria Estratégica de Marketing & Recomendações Táticas com Inteligência Artificial Gemini sobre Meridian MMM
+        Recomendações determinísticas e auditáveis sobre os resultados do Meridian MMM
       </h1>
 
       {/* Guidance Banner */}
       <StepGuidanceBanner
-        id="insights-ai"
+        id="insights-deterministic"
         stepNumber="8"
-        title="Etapa 8: Recomendações Estratégicas com IA (Gemini)"
+        title="Etapa 8: Recomendações Estratégicas Determinísticas"
         subtitle="Transforme os resultados estatísticos em decisões práticas de marketing com explicações claras e transparentes."
         onOpenFullTour={onOpenFullTour}
         tips={[
-          { icon: '🤖', text: 'Sem Alucinações: As respostas são estritamente fundamentadas nos números do modelo Google Meridian.' },
+          { icon: '⚙️', text: 'Sem LLM: as recomendações usam regras versionadas sobre resultados do Google Meridian.' },
           { icon: '🔍', text: 'Evidências Transparentes: Abra o detalhamento de cada recomendação para ver os dados que a sustentam.' },
-          { icon: '💬', text: 'Pergunte em Linguagem Natural: Faça qualquer pergunta sobre o seu mix de canais.' }
+          { icon: '💬', text: 'Consulta determinística: as perguntas apenas filtram recomendações já calculadas.' }
         ]}
-        proTip="Clique em uma das perguntas rápidas abaixo para obter uma análise estratégica instantânea."
+        proTip="Clique em uma consulta abaixo para filtrar as regras aplicadas ao orçamento atual."
       />
 
       {/* Top Banner with Interactive Strategic Q&A Box */}
@@ -113,7 +113,7 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-base font-bold tracking-tight">Consultor Estratégico com IA</h2>
+              <h2 className="text-base font-bold tracking-tight">Consultor Estratégico Determinístico</h2>
               <p className="text-xs text-slate-300">
                 Respostas executivas com base nos dados do seu modelo econométrico
               </p>
@@ -136,7 +136,7 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
             value={customQuestion}
             onChange={e => setCustomQuestion(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAsk(customQuestion)}
-            placeholder="Faça qualquer pergunta sobre onde investir, cortar gastos ou retornos dos canais..."
+            placeholder="Filtre as recomendações por canal, aumento, redução ou evidência..."
             className="flex-1 text-xs bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-blue-400"
           />
           <button
@@ -171,7 +171,7 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
           <div className="p-4 bg-white/10 backdrop-blur-xs rounded-xl border border-white/15 space-y-2 mt-3 animate-fade-in">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span className="text-xs font-bold text-emerald-300">Resposta Estratégica da IA</span>
+              <span className="text-xs font-bold text-emerald-300">Resposta Estratégica Auditável</span>
             </div>
             <p className="text-xs text-slate-100 leading-relaxed whitespace-pre-line">
               {customAnswer}
@@ -195,7 +195,7 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
         {isLoading ? (
           <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
             <RefreshCw className="w-6 h-6 text-blue-600 animate-spin mx-auto mb-2" />
-            <p className="text-xs text-slate-500">Sintetizando insights econométricos com Gemini AI...</p>
+            <p className="text-xs text-slate-500">Aplicando regras determinísticas aos resultados do Meridian...</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
@@ -224,8 +224,8 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
                     item.detail ||
                     item.summary ||
                     (item.channel
-                      ? `Baseado no ROI observado, taxa de saturação e curva de resposta de ${item.channel}.`
-                      : 'Baseado na distribuição global de investimentos e retorno consolidado do modelo.')
+                      ? `Baseado somente nas métricas Meridian disponíveis e na regra versionada para ${item.channel}.`
+                      : 'Baseado somente nos resultados científicos e nas regras determinísticas aplicáveis.')
                 }}
                 onApplyAction={onNavigateToOptimizer}
                 actionButtonLabel="Aplicar no Otimizador"

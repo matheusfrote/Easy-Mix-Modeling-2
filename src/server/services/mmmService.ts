@@ -56,21 +56,114 @@ function parseServiceError(data: any, response: Response): MeridianServiceError 
   };
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isNullableFinite(value: unknown): boolean {
+  return value === null || isFiniteNumber(value);
+}
+
+function hasNullableFiniteProperty(value: any, property: string): boolean {
+  return value !== null
+    && typeof value === 'object'
+    && Object.hasOwn(value, property)
+    && isNullableFinite(value[property]);
+}
+
+function isValidInterval(value: any): boolean {
+  return ['ci025', 'ci050', 'ci975'].every(property => hasNullableFiniteProperty(value, property));
+}
+
+function isValidChannel(value: any): boolean {
+  return value !== null
+    && typeof value === 'object'
+    && typeof value.channelName === 'string'
+    && value.channelName.trim().length > 0
+    && ['spend', 'spendShare', 'incrementalKpi', 'contribution', 'contributionShare', 'roi', 'marginalRoi', 'saturationLevel', 'currentMediaUnits', 'adstockDecay', 'adstockHalfLifeWeeks']
+      .every(property => hasNullableFiniteProperty(value, property))
+    && isValidInterval(value.roiInterval)
+    && isValidInterval(value.marginalRoiInterval)
+    && isValidInterval(value.incrementalOutcomeInterval)
+    && isValidInterval(value.contributionInterval)
+    && isValidInterval(value.saturationInterval)
+    && isValidInterval(value.adstockDecayInterval);
+}
+
+function isValidCurve(value: any): boolean {
+  return value !== null
+    && typeof value === 'object'
+    && typeof value.channelName === 'string'
+    && hasNullableFiniteProperty(value, 'currentSpend')
+    && Array.isArray(value.points)
+    && value.points.every((point: any) =>
+      isFiniteNumber(point?.spendMultiplier)
+      && ['spend', 'incrementalKpi', 'incrementalKpiLower', 'incrementalKpiUpper', 'roi', 'marginalRoi']
+        .every(property => hasNullableFiniteProperty(point, property))
+    );
+}
+
 function isValidFitResponse(data: any): boolean {
-  return data?.status === 'success'
+  const result = data?.results;
+  if (!(data?.status === 'success'
     && typeof data.modelId === 'string'
     && data.engine === 'google-meridian'
     && typeof data.engineVersion === 'string'
-    && data.results !== null
-    && typeof data.results === 'object'
-    && Object.hasOwn(data.results, 'totalSpend')
-    && Object.hasOwn(data.results, 'totalKpi')
-    && Object.hasOwn(data.results, 'blendedRoi')
-    && Array.isArray(data.results.channels)
-    && data.results.diagnostics !== null
-    && typeof data.results.diagnostics === 'object'
-    && data.results.responseCurves !== null
-    && typeof data.results.responseCurves === 'object';
+    && result !== null
+    && typeof result === 'object'
+    && isFiniteNumber(result.totalSpend)
+    && isFiniteNumber(result.totalKpi)
+    && hasNullableFiniteProperty(result, 'blendedRoi')
+    && ['revenue', 'non_revenue'].includes(result.kpiType)
+    && Array.isArray(result.channels)
+    && result.channels.length > 0
+    && result.channels.every(isValidChannel)
+    && result.diagnostics !== null
+    && typeof result.diagnostics === 'object'
+    && ['rSquared', 'mape', 'wmape', 'gelmanRubinRhat'].every(property =>
+      hasNullableFiniteProperty(result.diagnostics, property)
+    )
+    && (result.diagnostics.isConverged === null || typeof result.diagnostics.isConverged === 'boolean')
+    && result.responseCurves !== null
+    && typeof result.responseCurves === 'object')) return false;
+
+  const responseCurves = Object.values(result.responseCurves);
+  const channelNames = new Set(result.channels.map((channel: any) => channel.channelName));
+  return responseCurves.length === result.channels.length
+    && responseCurves.every(isValidCurve)
+    && responseCurves.every((curve: any) => channelNames.has(curve.channelName));
+}
+
+function isValidDerivedResponse(data: any, operation: 'optimizer' | 'scenario'): boolean {
+  if (
+    data?.status !== 'success'
+    || typeof data.modelId !== 'string'
+    || data.engine !== 'google-meridian'
+    || typeof data.engineVersion !== 'string'
+    || !data.results
+    || data.results.modelId !== data.modelId
+  ) return false;
+  const result = data.results;
+  if (operation === 'optimizer') {
+    return isFiniteNumber(result.targetTotalBudget)
+      && hasNullableFiniteProperty(result, 'currentTotalBudget')
+      && ['expectedCurrentKpi', 'expectedOptimizedKpi', 'incrementalKpi', 'liftPercentage', 'blendedCurrentRoi', 'blendedProjectedRoi']
+        .every(property => hasNullableFiniteProperty(result, property))
+      && Array.isArray(result.reallocations)
+      && result.reallocations.length > 0
+      && result.reallocations.every((item: any) =>
+        typeof item?.channelName === 'string'
+        && ['currentSpend', 'recommendedSpend', 'deltaSpend', 'deltaPercentage', 'currentRoi', 'optimizedRoi', 'marginalRoi']
+          .every(property => hasNullableFiniteProperty(item, property))
+      );
+  }
+  return typeof result.id === 'string'
+    && result.channelSpends !== null
+    && typeof result.channelSpends === 'object'
+    && Object.values(result.channelSpends).every(isFiniteNumber)
+    && isFiniteNumber(result.totalSpend)
+    && ['expectedKpi', 'expectedKpiLower', 'expectedKpiUpper', 'incrementalKpi', 'blendedRoi']
+      .every(property => hasNullableFiniteProperty(result, property));
 }
 
 export class MMMServiceClient {
@@ -174,29 +267,74 @@ export class MMMServiceClient {
     };
   }
 
-  async optimizeBudget(_payload: {
-    targetTotalBudget: number;
-    constraints?: any;
-    modelId?: string;
-    activeModel?: any;
-  }): Promise<MeridianServiceResponse> {
-    return {
-      status: 'not_implemented',
-      httpStatus: 501,
-      errors: [{ code: 'NOT_IMPLEMENTED', message: 'Budget Optimizer não está implementado.' }]
-    };
+  private async postDerived(
+    path: '/api/v1/meridian/optimize' | '/api/v1/meridian/simulate',
+    payload: Record<string, unknown>,
+    operation: 'optimizer' | 'scenario'
+  ): Promise<MeridianServiceResponse> {
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.MERIDIAN_DERIVED_TIMEOUT_MS) || 300000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${this.serviceUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        return {
+          status: statusForHttpCode(response.status),
+          httpStatus: response.status,
+          errors: [parseServiceError(data, response)]
+        };
+      }
+      if (!isValidDerivedResponse(data, operation)) {
+        return {
+          status: 'error',
+          httpStatus: 502,
+          errors: [{ code: 'INVALID_RESPONSE', message: `Contrato Meridian inválido para ${operation}.` }]
+        };
+      }
+      return {
+        status: 'success',
+        httpStatus: 200,
+        modelId: data.modelId,
+        engine: data.engine,
+        engineVersion: data.engineVersion,
+        results: data.results,
+        warnings: Array.isArray(data.warnings) ? data.warnings : []
+      };
+    } catch (error: any) {
+      return {
+        status: 'service_unavailable',
+        httpStatus: 503,
+        errors: [{
+          code: error?.name === 'AbortError' ? 'MERIDIAN_TIMEOUT' : 'MERIDIAN_UNAVAILABLE',
+          message: `O microserviço Google Meridian está indisponível: ${error?.message || String(error)}`
+        }]
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
-  async simulateScenario(_payload: {
-    channelSpends: Record<string, number>;
-    modelId?: string;
-    activeModel?: any;
+  async optimizeBudget(payload: {
+    targetTotalBudget: number;
+    constraints?: any;
+    modelId: string;
+    decisionEngineVersion: string;
   }): Promise<MeridianServiceResponse> {
-    return {
-      status: 'not_implemented',
-      httpStatus: 501,
-      errors: [{ code: 'NOT_IMPLEMENTED', message: 'What-If não está implementado.' }]
-    };
+    return this.postDerived('/api/v1/meridian/optimize', payload, 'optimizer');
+  }
+
+  async simulateScenario(payload: {
+    channelSpends: Record<string, number>;
+    modelId: string;
+    decisionEngineVersion: string;
+  }): Promise<MeridianServiceResponse> {
+    return this.postDerived('/api/v1/meridian/simulate', payload, 'scenario');
   }
 }
 

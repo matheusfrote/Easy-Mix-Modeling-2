@@ -63,7 +63,8 @@ async function startServer() {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Session-Id');
+        res.setHeader('Access-Control-Expose-Headers', 'X-Session-Id');
       }
     }
 
@@ -144,6 +145,9 @@ async function startServer() {
 
     try {
       const result = await handleApiRequest(urlPath, method, body, req.headers, clientIp);
+      for (const [header, value] of Object.entries(result.headers || {})) {
+        res.setHeader(header, value);
+      }
       res.status(result.status).json(result.data);
     } catch (error: any) {
       const requestId = `req_${Date.now()}_${crypto.randomUUID().replace(/-/g, '').substring(0, 10)}`;

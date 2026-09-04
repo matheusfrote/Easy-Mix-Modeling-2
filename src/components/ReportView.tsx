@@ -14,7 +14,6 @@ import {
 import { ExecutiveReportData, MeridianModelResults, DateRangeFilter } from '../types/mmm';
 import { apiClient } from '../services/apiClient';
 import { ScrollableTableWrapper } from './ui/ScrollableTableWrapper';
-import { GlobalDateRangeFilter, formatDateBR } from './GlobalDateRangeFilter';
 
 interface ReportViewProps {
   results: MeridianModelResults | null;
@@ -23,16 +22,24 @@ interface ReportViewProps {
   onChangeDateRange?: (newRange: DateRangeFilter) => void;
 }
 
+function formatKpi(value: unknown, kpiType?: MeridianModelResults['kpiType']): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'N/D';
+  return new Intl.NumberFormat('pt-BR', {
+    ...(kpiType === 'non_revenue' ? {} : { style: 'currency', currency: 'BRL' }),
+    notation: 'compact',
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 import { FloatingPrintButton } from "./ui/FloatingPrintButton";
 
 export const ReportView: React.FC<ReportViewProps> = ({
-  results,
-  availableDates = [],
-  dateRange,
-  onChangeDateRange
+  results
 }) => {
   const [report, setReport] = useState<ExecutiveReportData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
 
   const handlePrint = () => {
@@ -47,6 +54,24 @@ export const ReportView: React.FC<ReportViewProps> = ({
         setIsPrinting(false);
       }
     }, 50);
+  };
+
+  const handleEnhanceWithAi = async () => {
+    setIsEnhancing(true);
+    setAiMessage(null);
+    try {
+      const enhanced = await apiClient.enhanceReportWithAi();
+      setReport(enhanced);
+      if (enhanced.aiStatus !== 'generated') {
+        setAiMessage(enhanced.aiStatus === 'disabled'
+          ? 'IA desativada. O relatório determinístico permanece disponível.'
+          : 'A narrativa por IA não foi aplicada. O relatório determinístico foi preservado.');
+      }
+    } catch (error) {
+      setAiMessage(error instanceof Error ? error.message : 'A narrativa por IA não pôde ser aplicada.');
+    } finally {
+      setIsEnhancing(false);
+    }
   };
 
   useEffect(() => {
@@ -85,15 +110,15 @@ export const ReportView: React.FC<ReportViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Date Range Selector for Report Window */}
-          {availableDates.length > 0 && dateRange && onChangeDateRange && (
-            <GlobalDateRangeFilter
-              availableDates={availableDates}
-              dateRange={dateRange}
-              onChangeDateRange={onChangeDateRange}
-              variant="header"
-            />
-          )}
+          <button
+            type="button"
+            onClick={handleEnhanceWithAi}
+            disabled={isEnhancing || isLoading}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition shadow-xs w-full sm:w-auto justify-center"
+          >
+            <Sparkles className={`w-4 h-4 ${isEnhancing ? 'animate-pulse' : ''}`} />
+            {isEnhancing ? 'Melhorando narrativa...' : 'Melhorar narrativa com IA'}
+          </button>
 
           <button
             id="btn-print-report-pdf"
@@ -108,6 +133,12 @@ export const ReportView: React.FC<ReportViewProps> = ({
         </div>
       </div>
 
+      {aiMessage && (
+        <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 print:hidden">
+          {aiMessage}
+        </div>
+      )}
+
       {/* Printable Report Document Body */}
       <div id="printable-report-content" className="bg-white dark:bg-slate-900 p-6 sm:p-8 md:p-12 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-8 text-slate-900 dark:text-white print:border-none print:shadow-none print:p-6 transition-colors">
         {/* Report Header */}
@@ -120,19 +151,14 @@ export const ReportView: React.FC<ReportViewProps> = ({
               Marketing Mix Modeling (Google Meridian)
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Data de Emissão: {report?.generatedAt || new Date().toLocaleDateString('pt-BR')} • Versão do Motor: 1.0 (Bayesiano)
-              {dateRange && dateRange.preset !== 'all' && (
-                <span className="ml-2 font-semibold text-blue-600 dark:text-blue-400">
-                  • Período: {formatDateBR(dateRange.startDate)} até {formatDateBR(dateRange.endDate)}
-                </span>
-              )}
+              Execução do modelo: {report?.generatedAt ? new Date(report.generatedAt).toLocaleString('pt-BR') : 'indisponível'} • Modelo: {results.modelId} • Histórico completo ajustado
             </p>
           </div>
 
           <div className="text-left sm:text-right shrink-0">
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">Status Econométrico:</span>
-            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Modelo Validado & Convergido
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700">
+              <CheckCircle2 className="w-3.5 h-3.5" /> {results.diagnostics?.isConverged === true ? 'Convergido' : results.diagnostics?.isConverged === false ? 'Não convergido' : 'Convergência indisponível'}
             </span>
           </div>
         </div>
@@ -144,7 +170,9 @@ export const ReportView: React.FC<ReportViewProps> = ({
             1. Resumo Executivo & Diretriz Principal
           </h2>
           <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300 leading-relaxed space-y-2">
-            <p className="font-medium text-slate-900 dark:text-slate-100">{report?.summary}</p>
+            <p className="font-medium text-slate-900 dark:text-slate-100">
+              {report?.aiNarrative?.executiveSummary || report?.summary}
+            </p>
           </div>
         </section>
 
@@ -156,27 +184,27 @@ export const ReportView: React.FC<ReportViewProps> = ({
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold">Receita Total Histórica</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold">KPI Total Histórico</span>
               <div className="text-base font-bold text-slate-900 dark:text-white mt-0.5">
-                R$ {(((results?.totalKpi ?? 0)) / 1000000).toFixed(2)}M
+                {formatKpi(results.totalKpi, results.kpiType)}
               </div>
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
               <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold">Investimento Total Mídia</span>
               <div className="text-base font-bold text-slate-900 dark:text-white mt-0.5">
-                R$ {(((results?.totalSpend ?? 0)) / 1000).toFixed(0)}k
+                {Number.isFinite(results.totalSpend) ? `R$ ${(results.totalSpend / 1000).toFixed(0)}k` : 'N/D'}
               </div>
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
               <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold">ROI Médio (Mídia Paga)</span>
               <div className="text-base font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                {(results?.blendedRoi ?? 0).toFixed(2)}x
+                {Number.isFinite(results.blendedRoi) ? `${results.blendedRoi.toFixed(2)}x` : 'N/D'}
               </div>
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
               <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold">Aderência do Modelo (R²)</span>
               <div className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                {(((results?.diagnostics?.rSquared ?? 0)) * 100).toFixed(1)}%
+                {Number.isFinite(results.diagnostics?.rSquared) ? `${(results.diagnostics.rSquared * 100).toFixed(1)}%` : 'N/D'}
               </div>
             </div>
           </div>
@@ -205,14 +233,14 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 {(results.channels || []).map(c => (
                   <tr key={c.channelName} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                     <td className="p-2.5 font-bold text-slate-900 dark:text-white">{c.channelName}</td>
-                    <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">R$ {(c.spend || 0).toLocaleString('pt-BR')}</td>
-                    <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{c.spendShare || 0}%</td>
+                    <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{Number.isFinite(c.spend) ? `R$ ${c.spend.toLocaleString('pt-BR')}` : 'N/D'}</td>
+                    <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{Number.isFinite(c.spendShare) ? `${c.spendShare}%` : 'N/D'}</td>
                     <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                      {(c.roi || 0).toFixed(2)}x <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">[{c.roiInterval?.ci025?.toFixed(1) || '0.0'}x - {c.roiInterval?.ci975?.toFixed(1) || '0.0'}x]</span>
+                      {Number.isFinite(c.roi) ? `${c.roi.toFixed(2)}${results.kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'} <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">[{Number.isFinite(c.roiInterval?.ci025) ? `${c.roiInterval.ci025.toFixed(1)}${results.kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'} - {Number.isFinite(c.roiInterval?.ci975) ? `${c.roiInterval.ci975.toFixed(1)}${results.kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'}]</span>
                     </td>
-                    <td className="p-2.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{(c.marginalRoi || 0).toFixed(2)}x</td>
-                    <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{c.saturationLevel || 0}% ({c.saturationStatus || 'Ótimo'})</td>
-                    <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{c.adstockHalfLifeWeeks || 1} semanas</td>
+                    <td className="p-2.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{Number.isFinite(c.marginalRoi) ? `${c.marginalRoi.toFixed(2)}${results.kpiType === 'non_revenue' ? ' KPI/R$' : 'x'}` : 'N/D'}</td>
+                    <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{Number.isFinite(c.saturationLevel) ? `${(c.saturationLevel * 100).toFixed(0)}%${c.saturationStatus ? ` (${c.saturationStatus})` : ''}` : 'N/D'}</td>
+                    <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{Number.isFinite(c.adstockHalfLifeWeeks) ? `${c.adstockHalfLifeWeeks} semanas` : 'N/D'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -229,6 +257,11 @@ export const ReportView: React.FC<ReportViewProps> = ({
           <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
             {report?.budgetRecommendationSummary}
           </p>
+          {report?.aiNarrative?.recommendedActions?.length ? (
+            <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
+              {report.aiNarrative.recommendedActions.map(action => <li key={action}>{action}</li>)}
+            </ul>
+          ) : null}
         </section>
 
         {/* 5. Riscos e Limitações Metodológicas */}
@@ -246,7 +279,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
 
         {/* Report Footer */}
         <div className="pt-6 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
-          <span>Plataforma SaaS Meridian AI MMM • Modelo Estatístico Baseado em Google Meridian</span>
+          <span>Easy Mix Modeling • Modelo estatístico baseado em Google Meridian</span>
           <span>Confidencial • Uso Interno</span>
         </div>
       </div>
